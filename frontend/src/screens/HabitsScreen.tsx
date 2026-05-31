@@ -8,6 +8,7 @@ import colors from "../theme/colors";
 import spacing from "../theme/spacing";
 import type { CreateHabitPayload, Habit } from "../types/habit";
 import { getErrorMessage } from "../types/api";
+import { formatLocalDate } from "../utils/date";
 
 export default function HabitsScreen() {
   const [habits, setHabits] = useState<Habit[]>([]);
@@ -79,7 +80,7 @@ export default function HabitsScreen() {
 
   async function handleLogHabit(habitId: string): Promise<void> {
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = formatLocalDate(new Date());
       await logHabit(habitId, { date: today });
       await loadHabits();
     } catch (err: unknown) {

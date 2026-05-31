@@ -1,0 +1,56 @@
+export interface CalendarMonthTaskItem {
+  task_id: string;
+  title: string;
+  status: string;
+}
+
+export interface CalendarMonthDateEntry {
+  tasks: CalendarMonthTaskItem[];
+  habit_logs_completed: number;
+}
+
+export interface CalendarMonthResponse {
+  year: number;
+  month: number;
+  dates: Record<string, CalendarMonthDateEntry>;
+}
+
+export interface CalendarTaskItem {
+  task_id: string;
+  title: string;
+  description: string | null;
+  due_date: string | null;
+  due_time: string | null;
+  status: string;
+  is_all_day: boolean;
+  completed_at: string | null;
+  emoji: string | null;
+  color: string | null;
+}
+
+export interface CalendarHabitLog {
+  habit_id: string;
+  completed_count: number;
+  target_count_snapshot: number;
+  status: string;
+}
+
+export interface CalendarHabitItem {
+  habit_id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  emoji: string | null;
+  color: string | null;
+  start_date: string;
+  recurrence_type: string | null;
+  target_count: number | null;
+  completed: boolean;
+  log: CalendarHabitLog | null;
+}
+
+export interface CalendarDayResponse {
+  date: string;
+  tasks: CalendarTaskItem[];
+  habits: CalendarHabitItem[];
+}
