@@ -3,9 +3,9 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, Vi
 import AppButton from "../components/AppButton";
 import ScreenContainer from "../components/ScreenContainer";
 import { getCalendarDay, getCalendarMonth } from "../api/calendar.api";
-import colors from "../theme/colors";
-import spacing from "../theme/spacing";
-import { createLocalDate, formatLocalDate, getLocalMonthStart } from "../utils/date";
+import { useTranslation } from "../i18n";
+import { useSettings } from "../context/SettingsContext";
+import { useAppTheme } from "../theme/useAppTheme";
 import type {
   CalendarDayResponse,
   CalendarHabitItem,
@@ -13,33 +13,22 @@ import type {
   CalendarTaskItem
 } from "../types/calendar";
 import { getErrorMessage } from "../types/api";
-
-const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const MONTH_LABELS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December"
-];
+import { createLocalDate, formatLocalDate, getLocalMonthStart } from "../utils/date";
 
 interface DayCellData {
   isoDate: string;
   dayNumber: number;
-  isCurrentMonth: boolean;
 }
 
-function getMonthGrid(year: number, monthIndex: number): Array<DayCellData | null> {
+function getMonthGrid(
+  year: number,
+  monthIndex: number,
+  weekStartsOn: "monday" | "sunday"
+): Array<DayCellData | null> {
   const firstDay = createLocalDate(year, monthIndex, 1);
   const daysInMonth = createLocalDate(year, monthIndex + 1, 0).getDate();
-  const startOffset = (firstDay.getDay() + 6) % 7;
+  const weekOffset = weekStartsOn === "monday" ? 1 : 0;
+  const startOffset = (firstDay.getDay() - weekOffset + 7) % 7;
   const cells: Array<DayCellData | null> = [];
 
   for (let index = 0; index < startOffset; index += 1) {
@@ -50,8 +39,7 @@ function getMonthGrid(year: number, monthIndex: number): Array<DayCellData | nul
     const date = createLocalDate(year, monthIndex, day);
     cells.push({
       isoDate: formatLocalDate(date),
-      dayNumber: day,
-      isCurrentMonth: true
+      dayNumber: day
     });
   }
 
@@ -62,17 +50,62 @@ function getMonthGrid(year: number, monthIndex: number): Array<DayCellData | nul
   return cells;
 }
 
+function getWeekdayLabels(
+  locale: string,
+  weekStartsOn: "monday" | "sunday"
+): string[] {
+  const formatter = new Intl.DateTimeFormat(locale, { weekday: "short" });
+  const sundayReference = createLocalDate(2026, 0, 4);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const dayOffset = weekStartsOn === "monday" ? index + 1 : index;
+    return formatter.format(createLocalDate(2026, 0, sundayReference.getDate() + dayOffset));
+  });
+}
+
+function resolveLocale(language: string): string {
+  if (language === "el") {
+    return "el-GR";
+  }
+
+  if (language === "ro") {
+    return "ro-RO";
+  }
+
+  return "en-US";
+}
+
+function clampSelectedDate(targetMonth: Date, selectedDate: string): string {
+  const selectedDay = Number(selectedDate.split("-")[2] || "1");
+  const daysInTargetMonth = createLocalDate(
+    targetMonth.getFullYear(),
+    targetMonth.getMonth() + 1,
+    0
+  ).getDate();
+  const day = Math.min(selectedDay, daysInTargetMonth);
+
+  return formatLocalDate(
+    createLocalDate(targetMonth.getFullYear(), targetMonth.getMonth(), day)
+  );
+}
+
 function DaySection<T>({
   title,
   items,
   emptyMessage,
-  renderItem
+  renderItem,
+  colors,
+  spacing
 }: {
   title: string;
   items: T[];
   emptyMessage: string;
   renderItem: (item: T) => React.ReactNode;
+  colors: ReturnType<typeof useAppTheme>["colors"];
+  spacing: ReturnType<typeof useAppTheme>["spacing"];
 }) {
+  const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
+
   return (
     <View style={styles.detailSection}>
       <Text style={styles.detailHeading}>{title}</Text>
@@ -84,6 +117,10 @@ function DaySection<T>({
 export default function CalendarScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 900;
+  const { colors, spacing } = useAppTheme();
+  const { t, language } = useTranslation();
+  const { settings } = useSettings();
+  const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
   const today = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => formatLocalDate(today), [today]);
   const [visibleMonth, setVisibleMonth] = useState<Date>(() => getLocalMonthStart(today));
@@ -93,12 +130,22 @@ export default function CalendarScreen() {
   const [monthLoading, setMonthLoading] = useState<boolean>(true);
   const [dayLoading, setDayLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>("");
-
+  const locale = useMemo(() => resolveLocale(language), [language]);
   const year = visibleMonth.getFullYear();
   const monthIndex = visibleMonth.getMonth();
   const monthNumber = monthIndex + 1;
-  const monthLabel = `${MONTH_LABELS[monthIndex]} ${year}`;
-  const dayCells = useMemo(() => getMonthGrid(year, monthIndex), [year, monthIndex]);
+  const monthLabel = useMemo(
+    () => new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" }).format(visibleMonth),
+    [locale, visibleMonth]
+  );
+  const weekdayLabels = useMemo(
+    () => getWeekdayLabels(locale, settings.week_starts_on),
+    [locale, settings.week_starts_on]
+  );
+  const dayCells = useMemo(
+    () => getMonthGrid(year, monthIndex, settings.week_starts_on),
+    [year, monthIndex, settings.week_starts_on]
+  );
 
   useEffect(() => {
     void loadMonth(year, monthNumber);
@@ -135,11 +182,11 @@ export default function CalendarScreen() {
   }
 
   function changeMonth(offset: number): void {
-    setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
-  }
-
-  function selectDate(isoDate: string): void {
-    setSelectedDate(isoDate);
+    setVisibleMonth((current) => {
+      const targetMonth = createLocalDate(current.getFullYear(), current.getMonth() + offset, 1);
+      setSelectedDate(clampSelectedDate(targetMonth, selectedDate));
+      return getLocalMonthStart(targetMonth);
+    });
   }
 
   function getMonthEntry(isoDate: string) {
@@ -149,24 +196,24 @@ export default function CalendarScreen() {
   return (
     <ScreenContainer>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Calendar</Text>
+        <Text style={styles.title}>{t("calendar.title")}</Text>
         <View style={styles.headerPill}>
-          <Text style={styles.headerPillText}>Internal</Text>
+          <Text style={styles.headerPillText}>{t("calendar.badge")}</Text>
         </View>
       </View>
 
       <View style={styles.card}>
-        <View style={styles.monthHeader}>
-          <AppButton title="Previous" variant="secondary" onPress={() => changeMonth(-1)} />
+        <View style={[styles.monthHeader, isWide ? styles.monthHeaderWide : null]}>
+          <AppButton title={t("calendar.previous")} variant="secondary" onPress={() => changeMonth(-1)} />
           <View style={styles.monthTitleWrap}>
             <Text style={styles.heading}>{monthLabel}</Text>
-            <Text style={styles.body}>Select a date to inspect tasks and habits.</Text>
+            <Text style={styles.body}>{t("calendar.monthSubtitle")}</Text>
           </View>
-          <AppButton title="Next" variant="secondary" onPress={() => changeMonth(1)} />
+          <AppButton title={t("calendar.next")} variant="secondary" onPress={() => changeMonth(1)} />
         </View>
 
         <View style={styles.weekdayRow}>
-          {WEEKDAY_LABELS.map((label) => (
+          {weekdayLabels.map((label) => (
             <Text key={label} style={styles.weekdayLabel}>
               {label}
             </Text>
@@ -176,7 +223,7 @@ export default function CalendarScreen() {
         {monthLoading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator color={colors.primaryBlue} />
-            <Text style={styles.loadingText}>Loading month...</Text>
+            <Text style={styles.loadingText}>{t("calendar.loadingMonth")}</Text>
           </View>
         ) : (
           <View style={styles.grid}>
@@ -194,7 +241,7 @@ export default function CalendarScreen() {
               return (
                 <Pressable
                   key={cell.isoDate}
-                  onPress={() => selectDate(cell.isoDate)}
+                  onPress={() => setSelectedDate(cell.isoDate)}
                   style={[
                     styles.dayCell,
                     isSelected ? styles.dayCellSelected : null,
@@ -229,42 +276,48 @@ export default function CalendarScreen() {
 
       <View style={[styles.detailCard, isWide ? styles.detailCardWide : null]}>
         <View style={styles.detailHeader}>
-          <Text style={styles.detailTitle}>Day Details</Text>
+          <Text style={styles.detailTitle}>{t("calendar.dayDetails")}</Text>
           <Text style={styles.detailDate}>{selectedDate}</Text>
         </View>
 
         {dayLoading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator color={colors.primaryBlue} />
-            <Text style={styles.loadingText}>Loading day...</Text>
+            <Text style={styles.loadingText}>{t("calendar.loadingDay")}</Text>
           </View>
         ) : (
           <View style={[styles.detailContent, isWide ? styles.detailContentWide : null]}>
             <DaySection<CalendarTaskItem>
-              title="Tasks"
+              title={t("calendar.tasksSection")}
               items={dayData?.tasks ?? []}
-              emptyMessage="No tasks for this day"
+              emptyMessage={t("calendar.noTasksForDay")}
+              colors={colors}
+              spacing={spacing}
               renderItem={(task) => (
                 <View key={task.task_id} style={styles.listItem}>
                   <Text style={styles.listItemTitle}>{task.title}</Text>
                   <Text style={styles.listItemMeta}>
-                    {task.status}
-                    {task.due_time ? ` • ${task.due_time}` : ""}
+                    {task.status === "completed" ? t("common.completed") : t("common.pending")}
+                    {task.due_time ? ` \u2022 ${task.due_time}` : ""}
                   </Text>
                 </View>
               )}
             />
 
             <DaySection<CalendarHabitItem>
-              title="Habits"
+              title={t("calendar.habitsSection")}
               items={dayData?.habits ?? []}
-              emptyMessage="No habits for this day"
+              emptyMessage={t("calendar.noHabitsForDay")}
+              colors={colors}
+              spacing={spacing}
               renderItem={(habit) => (
                 <View key={habit.habit_id} style={styles.listItem}>
                   <Text style={styles.listItemTitle}>{habit.title}</Text>
                   <Text style={styles.listItemMeta}>
-                    {habit.completed ? "Completed" : "Pending"}
-                    {habit.log ? ` • ${habit.log.completed_count}/${habit.log.target_count_snapshot}` : ""}
+                    {habit.completed ? t("common.completed") : t("common.pending")}
+                    {habit.log
+                      ? ` \u2022 ${habit.log.completed_count}/${habit.log.target_count_snapshot}`
+                      : ""}
                   </Text>
                 </View>
               )}
@@ -276,202 +329,214 @@ export default function CalendarScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: colors.textPrimary
-  },
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: spacing.md
-  },
-  headerPill: {
-    borderRadius: 999,
-    backgroundColor: colors.primaryBlueUltraSoft,
-    borderWidth: 1,
-    borderColor: colors.primaryBlueSoft,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6
-  },
-  headerPillText: {
-    fontSize: 12,
-    color: colors.primaryBlueDark,
-    fontWeight: "700"
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 22,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.md
-  },
-  monthHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.md
-  },
-  monthTitleWrap: {
-    flex: 1,
-    alignItems: "center",
-    gap: spacing.xs
-  },
-  heading: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: colors.textPrimary
-  },
-  body: {
-    fontSize: 15,
-    lineHeight: 24,
-    color: colors.textSecondary
-  },
-  weekdayRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: spacing.xs
-  },
-  weekdayLabel: {
-    flex: 1,
-    textAlign: "center",
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.textSecondary
-  },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs
-  },
-  dayCell: {
-    width: "13.3%",
-    minWidth: 42,
-    aspectRatio: 1,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing.xs,
-    justifyContent: "space-between"
-  },
-  dayCellEmpty: {
-    backgroundColor: "transparent",
-    borderColor: "transparent"
-  },
-  dayCellSelected: {
-    backgroundColor: colors.primaryBlue,
-    borderColor: colors.primaryBlue
-  },
-  dayCellToday: {
-    borderColor: colors.zapYellowDark
-  },
-  dayNumber: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: colors.textPrimary
-  },
-  dayNumberSelected: {
-    color: colors.textOnPrimary
-  },
-  dayNumberToday: {
-    color: colors.primaryBlueDark
-  },
-  indicatorRow: {
-    flexDirection: "row",
-    gap: 4
-  },
-  indicatorDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 999
-  },
-  taskDot: {
-    backgroundColor: colors.primaryBlue
-  },
-  habitDot: {
-    backgroundColor: colors.zapYellow
-  },
-  detailCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 22,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.md
-  },
-  detailCardWide: {
-    gap: spacing.lg
-  },
-  detailHeader: {
-    gap: spacing.xs
-  },
-  detailTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: colors.textPrimary
-  },
-  detailDate: {
-    fontSize: 14,
-    color: colors.textSecondary
-  },
-  detailContent: {
-    gap: spacing.lg
-  },
-  detailContentWide: {
-    flexDirection: "row",
-    alignItems: "flex-start"
-  },
-  detailSection: {
-    flex: 1,
-    gap: spacing.sm
-  },
-  detailHeading: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: colors.textPrimary
-  },
-  listItem: {
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 16,
-    padding: spacing.md,
-    gap: spacing.xs
-  },
-  listItemTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: colors.textPrimary
-  },
-  listItemMeta: {
-    fontSize: 13,
-    color: colors.textSecondary
-  },
-  emptyText: {
-    fontSize: 14,
-    color: colors.textSecondary
-  },
-  loadingWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-    paddingVertical: spacing.lg
-  },
-  loadingText: {
-    color: colors.textSecondary,
-    fontSize: 14
-  },
-  errorCard: {
-    backgroundColor: colors.dangerSoft,
-    borderWidth: 1,
-    borderColor: colors.danger,
-    borderRadius: 16,
-    padding: spacing.md
-  },
-  errorText: {
-    color: colors.danger,
-    fontSize: 14
-  }
-});
+function createStyles(
+  colors: ReturnType<typeof useAppTheme>["colors"],
+  spacing: ReturnType<typeof useAppTheme>["spacing"]
+) {
+  return StyleSheet.create({
+    title: {
+      fontSize: 28,
+      fontWeight: "700",
+      color: colors.textPrimary
+    },
+    headerRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: spacing.md
+    },
+    headerPill: {
+      borderRadius: 999,
+      backgroundColor: colors.primaryBlueUltraSoft,
+      borderWidth: 1,
+      borderColor: colors.primaryBlueSoft,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6
+    },
+    headerPillText: {
+      fontSize: 12,
+      color: colors.primaryBlueDark,
+      fontWeight: "700"
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: 22,
+      padding: spacing.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.md
+    },
+    monthHeader: {
+      flexDirection: "column",
+      alignItems: "stretch",
+      gap: spacing.md
+    },
+    monthHeaderWide: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between"
+    },
+    monthTitleWrap: {
+      flex: 1,
+      alignItems: "center",
+      gap: spacing.xs
+    },
+    heading: {
+      fontSize: 18,
+      fontWeight: "700",
+      color: colors.textPrimary,
+      textTransform: "capitalize"
+    },
+    body: {
+      fontSize: 15,
+      lineHeight: 22,
+      color: colors.textSecondary,
+      textAlign: "center"
+    },
+    weekdayRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      gap: spacing.xs
+    },
+    weekdayLabel: {
+      flex: 1,
+      textAlign: "center",
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.textSecondary,
+      textTransform: "capitalize"
+    },
+    grid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.xs
+    },
+    dayCell: {
+      width: "13.3%",
+      minWidth: 42,
+      aspectRatio: 1,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: spacing.xs,
+      justifyContent: "space-between"
+    },
+    dayCellEmpty: {
+      backgroundColor: "transparent",
+      borderColor: "transparent"
+    },
+    dayCellSelected: {
+      backgroundColor: colors.primaryBlue,
+      borderColor: colors.primaryBlue
+    },
+    dayCellToday: {
+      borderColor: colors.zapYellowDark
+    },
+    dayNumber: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.textPrimary
+    },
+    dayNumberSelected: {
+      color: colors.textOnPrimary
+    },
+    dayNumberToday: {
+      color: colors.primaryBlueDark
+    },
+    indicatorRow: {
+      flexDirection: "row",
+      gap: 4
+    },
+    indicatorDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 999
+    },
+    taskDot: {
+      backgroundColor: colors.primaryBlue
+    },
+    habitDot: {
+      backgroundColor: colors.zapYellow
+    },
+    detailCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 22,
+      padding: spacing.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.md
+    },
+    detailCardWide: {
+      gap: spacing.lg
+    },
+    detailHeader: {
+      gap: spacing.xs
+    },
+    detailTitle: {
+      fontSize: 18,
+      fontWeight: "700",
+      color: colors.textPrimary
+    },
+    detailDate: {
+      fontSize: 14,
+      color: colors.textSecondary
+    },
+    detailContent: {
+      gap: spacing.lg
+    },
+    detailContentWide: {
+      flexDirection: "row",
+      alignItems: "flex-start"
+    },
+    detailSection: {
+      flex: 1,
+      gap: spacing.sm
+    },
+    detailHeading: {
+      fontSize: 16,
+      fontWeight: "700",
+      color: colors.textPrimary
+    },
+    listItem: {
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 16,
+      padding: spacing.md,
+      gap: spacing.xs
+    },
+    listItemTitle: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.textPrimary
+    },
+    listItemMeta: {
+      fontSize: 13,
+      color: colors.textSecondary
+    },
+    emptyText: {
+      fontSize: 14,
+      color: colors.textSecondary
+    },
+    loadingWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.lg
+    },
+    loadingText: {
+      color: colors.textSecondary,
+      fontSize: 14
+    },
+    errorCard: {
+      backgroundColor: colors.dangerSoft,
+      borderWidth: 1,
+      borderColor: colors.danger,
+      borderRadius: 16,
+      padding: spacing.md
+    },
+    errorText: {
+      color: colors.danger,
+      fontSize: 14
+    }
+  });
+}

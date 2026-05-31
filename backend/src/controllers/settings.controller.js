@@ -6,7 +6,7 @@ const {
 } = require("../utils/validators");
 
 const ALLOWED_THEMES = ["light", "dark", "system"];
-const ALLOWED_VIEWS = ["dashboard", "tasks", "habits", "calendar"];
+const ALLOWED_VIEWS = ["dashboard", "tasks", "habits", "calendar", "account"];
 const ALLOWED_WEEK_STARTS = ["monday", "sunday"];
 
 async function ensureUserSettings(userId, runner = query) {

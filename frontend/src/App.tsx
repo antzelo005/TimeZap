@@ -5,22 +5,24 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import AppNavigator from "./navigation/AppNavigator";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import colors from "./theme/colors";
-
-const navigationTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    background: colors.appBackground,
-    card: colors.surface,
-    text: colors.textPrimary,
-    border: colors.border,
-    primary: colors.primaryBlue
-  }
-};
+import { SettingsProvider } from "./context/SettingsContext";
+import { useAppTheme } from "./theme/useAppTheme";
 
 function AppContent() {
   const { isBootstrapping } = useAuth();
+  const { colors, isDark } = useAppTheme();
+
+  const navigationTheme = {
+    ...DefaultTheme,
+    colors: {
+      ...DefaultTheme.colors,
+      background: colors.appBackground,
+      card: colors.surface,
+      text: colors.textPrimary,
+      border: colors.border,
+      primary: colors.primaryBlue
+    }
+  };
 
   if (isBootstrapping) {
     return (
@@ -39,7 +41,7 @@ function AppContent() {
 
   return (
     <NavigationContainer theme={navigationTheme}>
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <AppNavigator />
     </NavigationContainer>
   );
@@ -49,7 +51,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <AppContent />
+        <SettingsProvider>
+          <AppContent />
+        </SettingsProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

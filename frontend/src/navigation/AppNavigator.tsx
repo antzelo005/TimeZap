@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../context/AuthContext";
+import { useSettings } from "../context/SettingsContext";
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import DashboardScreen from "../screens/DashboardScreen";
@@ -10,8 +11,10 @@ import TasksScreen from "../screens/TasksScreen";
 import HabitsScreen from "../screens/HabitsScreen";
 import CalendarScreen from "../screens/CalendarScreen";
 import AccountScreen from "../screens/AccountScreen";
-import colors from "../theme/colors";
+import { useAppTheme } from "../theme/useAppTheme";
 import type { AuthStackParamList, MainTabParamList } from "../types/navigation";
+import { useTranslation } from "../i18n";
+import type { DefaultView } from "../types/settings";
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const MainTabs = createBottomTabNavigator<MainTabParamList>();
@@ -21,6 +24,8 @@ interface TitleWithZapProps {
 }
 
 function TitleWithZap({ title }: TitleWithZapProps) {
+  const { colors } = useAppTheme();
+
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       <View
@@ -52,6 +57,9 @@ function TabIcon({ icon, color }: TabIconProps) {
 }
 
 function AuthNavigator() {
+  const { colors } = useAppTheme();
+  const { t } = useTranslation();
+
   return (
     <AuthStack.Navigator
       screenOptions={{
@@ -70,20 +78,34 @@ function AuthNavigator() {
       <AuthStack.Screen
         name="Login"
         component={LoginScreen}
-        options={{ headerTitle: () => <TitleWithZap title="TimeZap" /> }}
+        options={{ headerTitle: () => <TitleWithZap title={t("common.appName")} /> }}
       />
       <AuthStack.Screen
         name="Register"
         component={RegisterScreen}
-        options={{ headerTitle: () => <TitleWithZap title="Create Account" /> }}
+        options={{ headerTitle: () => <TitleWithZap title={t("register.title")} /> }}
       />
     </AuthStack.Navigator>
   );
 }
 
 function MainNavigator() {
+  const { colors } = useAppTheme();
+  const { t } = useTranslation();
+  const { settings } = useSettings();
+
+  const initialRouteMap: Record<DefaultView, keyof MainTabParamList> = {
+    dashboard: "Dashboard",
+    tasks: "Tasks",
+    habits: "Habits",
+    calendar: "Calendar",
+    account: "Account"
+  };
+
   return (
     <MainTabs.Navigator
+      key={settings.default_view}
+      initialRouteName={initialRouteMap[settings.default_view]}
       screenOptions={{
         headerStyle: { backgroundColor: colors.surface },
         headerShadowVisible: false,
@@ -112,13 +134,15 @@ function MainNavigator() {
         },
         tabBarIconStyle: {
           marginBottom: 2
-        },
+        }
       }}
     >
       <MainTabs.Screen
         name="Dashboard"
         component={DashboardScreen}
         options={{
+          title: t("tabs.dashboard"),
+          tabBarLabel: t("tabs.dashboard"),
           tabBarIcon: ({ color }) => <TabIcon icon="⚡" color={color} />
         }}
       />
@@ -126,6 +150,8 @@ function MainNavigator() {
         name="Tasks"
         component={TasksScreen}
         options={{
+          title: t("tabs.tasks"),
+          tabBarLabel: t("tabs.tasks"),
           tabBarIcon: ({ color }) => <TabIcon icon="✓" color={color} />
         }}
       />
@@ -133,6 +159,8 @@ function MainNavigator() {
         name="Habits"
         component={HabitsScreen}
         options={{
+          title: t("tabs.habits"),
+          tabBarLabel: t("tabs.habits"),
           tabBarIcon: ({ color }) => <TabIcon icon="🔁" color={color} />
         }}
       />
@@ -140,6 +168,8 @@ function MainNavigator() {
         name="Calendar"
         component={CalendarScreen}
         options={{
+          title: t("tabs.calendar"),
+          tabBarLabel: t("tabs.calendar"),
           tabBarIcon: ({ color }) => <TabIcon icon="📅" color={color} />
         }}
       />
@@ -147,6 +177,8 @@ function MainNavigator() {
         name="Account"
         component={AccountScreen}
         options={{
+          title: t("tabs.account"),
+          tabBarLabel: t("tabs.account"),
           tabBarIcon: ({ color }) => <TabIcon icon="👤" color={color} />
         }}
       />

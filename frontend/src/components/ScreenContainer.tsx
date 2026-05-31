@@ -1,8 +1,7 @@
 import React from "react";
 import type { ReactNode } from "react";
 import { Platform, ScrollView, StyleSheet, View } from "react-native";
-import colors from "../theme/colors";
-import spacing from "../theme/spacing";
+import { useAppTheme } from "../theme/useAppTheme";
 
 interface ScreenContainerProps {
   children: ReactNode;
@@ -13,6 +12,9 @@ export default function ScreenContainer({
   children,
   scroll = true
 }: ScreenContainerProps) {
+  const { colors, spacing } = useAppTheme();
+  const styles = createStyles(colors, spacing);
+
   if (!scroll) {
     return (
       <View style={styles.container}>
@@ -32,20 +34,25 @@ export default function ScreenContainer({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.appBackground
-  },
-  scrollContent: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xl,
-    width: "100%"
-  },
-  content: {
-    width: "100%",
-    maxWidth: Platform.OS === "web" ? 1040 : "100%",
-    alignSelf: "center",
-    gap: spacing.md
-  }
-});
+function createStyles(
+  colors: ReturnType<typeof useAppTheme>["colors"],
+  spacing: ReturnType<typeof useAppTheme>["spacing"]
+) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.appBackground
+    },
+    scrollContent: {
+      padding: spacing.lg,
+      paddingBottom: spacing.xl,
+      width: "100%"
+    },
+    content: {
+      width: "100%",
+      maxWidth: Platform.OS === "web" ? 1040 : "100%",
+      alignSelf: "center",
+      gap: spacing.md
+    }
+  });
+}
