@@ -6,23 +6,25 @@ import ScreenContainer from "../components/ScreenContainer";
 import { createHabit, getHabitStreak, getHabits, logHabit } from "../api/habits.api";
 import colors from "../theme/colors";
 import spacing from "../theme/spacing";
+import type { CreateHabitPayload, Habit } from "../types/habit";
+import { getErrorMessage } from "../types/api";
 
 export default function HabitsScreen() {
-  const [habits, setHabits] = useState([]);
-  const [streaks, setStreaks] = useState({});
-  const [form, setForm] = useState({
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [streaks, setStreaks] = useState<Record<string, number>>({});
+  const [form, setForm] = useState<{ title: string; start_date: string }>({
     title: "",
     start_date: ""
   });
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
 
   useEffect(() => {
-    loadHabits();
+    void loadHabits();
   }, []);
 
-  async function loadHabits() {
+  async function loadHabits(): Promise<void> {
     try {
       setError("");
       setLoading(true);
@@ -34,25 +36,25 @@ export default function HabitsScreen() {
         items.map(async (habit) => {
           try {
             const streak = await getHabitStreak(habit.habit_id);
-            return [habit.habit_id, streak.current_streak];
-          } catch (err) {
-            return [habit.habit_id, 0];
+            return [habit.habit_id, streak.current_streak] as const;
+          } catch {
+            return [habit.habit_id, 0] as const;
           }
         })
       );
 
       setStreaks(Object.fromEntries(streakEntries));
-    } catch (err) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleCreateHabit() {
+  async function handleCreateHabit(): Promise<void> {
     try {
       setSubmitting(true);
-      await createHabit({
+      const payload: CreateHabitPayload = {
         title: form.title,
         start_date: form.start_date,
         rule: {
@@ -63,23 +65,25 @@ export default function HabitsScreen() {
           week_start: "monday",
           days: []
         }
-      });
+      };
+
+      await createHabit(payload);
       setForm({ title: "", start_date: "" });
       await loadHabits();
-    } catch (err) {
-      Alert.alert("Habit error", err.message);
+    } catch (err: unknown) {
+      Alert.alert("Habit error", getErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function handleLogHabit(habitId) {
+  async function handleLogHabit(habitId: string): Promise<void> {
     try {
       const today = new Date().toISOString().slice(0, 10);
       await logHabit(habitId, { date: today });
       await loadHabits();
-    } catch (err) {
-      Alert.alert("Habit error", err.message);
+    } catch (err: unknown) {
+      Alert.alert("Habit error", getErrorMessage(err));
     }
   }
 
@@ -105,7 +109,7 @@ export default function HabitsScreen() {
           onChangeText={(value) => setForm((current) => ({ ...current, start_date: value }))}
           placeholder="2026-06-01"
         />
-        <AppButton title="Add habit" onPress={handleCreateHabit} loading={submitting} />
+        <AppButton title="Add habit" onPress={() => void handleCreateHabit()} loading={submitting} />
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -119,7 +123,11 @@ export default function HabitsScreen() {
               <Text style={styles.streakChip}>{streaks[habit.habit_id] || 0} day streak</Text>
             </View>
             <Text style={styles.itemMeta}>Start date: {habit.start_date}</Text>
-            <AppButton title="Log today" variant="accent" onPress={() => handleLogHabit(habit.habit_id)} />
+            <AppButton
+              title="Log today"
+              variant="accent"
+              onPress={() => void handleLogHabit(habit.habit_id)}
+            />
           </View>
         ))}
       </View>

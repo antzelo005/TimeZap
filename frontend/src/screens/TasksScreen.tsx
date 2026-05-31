@@ -6,60 +6,58 @@ import ScreenContainer from "../components/ScreenContainer";
 import { completeTask, createTask, getTasks } from "../api/tasks.api";
 import colors from "../theme/colors";
 import spacing from "../theme/spacing";
+import type { CreateTaskPayload, Task } from "../types/task";
+import { getErrorMessage } from "../types/api";
 
 export default function TasksScreen() {
-  const [tasks, setTasks] = useState([]);
-  const [form, setForm] = useState({
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [form, setForm] = useState<CreateTaskPayload>({
     title: "",
-    due_date: "",
-    due_time: ""
+    due_date: null,
+    due_time: null,
+    is_all_day: false
   });
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
 
   useEffect(() => {
-    loadTasks();
+    void loadTasks();
   }, []);
 
-  async function loadTasks() {
+  async function loadTasks(): Promise<void> {
     try {
       setError("");
       setLoading(true);
       const response = await getTasks();
       setTasks(response.items || []);
-    } catch (err) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleCreateTask() {
+  async function handleCreateTask(): Promise<void> {
     try {
       setSubmitting(true);
       setError("");
-      await createTask({
-        title: form.title,
-        due_date: form.due_date || null,
-        due_time: form.due_time || null,
-        is_all_day: false
-      });
-      setForm({ title: "", due_date: "", due_time: "" });
+      await createTask(form);
+      setForm({ title: "", due_date: null, due_time: null, is_all_day: false });
       await loadTasks();
-    } catch (err) {
-      Alert.alert("Task error", err.message);
+    } catch (err: unknown) {
+      Alert.alert("Task error", getErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function handleCompleteTask(taskId) {
+  async function handleCompleteTask(taskId: string): Promise<void> {
     try {
       await completeTask(taskId);
       await loadTasks();
-    } catch (err) {
-      Alert.alert("Task error", err.message);
+    } catch (err: unknown) {
+      Alert.alert("Task error", getErrorMessage(err));
     }
   }
 
@@ -81,17 +79,21 @@ export default function TasksScreen() {
         />
         <AppInput
           label="Due date"
-          value={form.due_date}
-          onChangeText={(value) => setForm((current) => ({ ...current, due_date: value }))}
+          value={form.due_date ?? ""}
+          onChangeText={(value) =>
+            setForm((current) => ({ ...current, due_date: value ? value : null }))
+          }
           placeholder="2026-06-01"
         />
         <AppInput
           label="Due time"
-          value={form.due_time}
-          onChangeText={(value) => setForm((current) => ({ ...current, due_time: value }))}
+          value={form.due_time ?? ""}
+          onChangeText={(value) =>
+            setForm((current) => ({ ...current, due_time: value ? value : null }))
+          }
           placeholder="18:00"
         />
-        <AppButton title="Add task" onPress={handleCreateTask} loading={submitting} />
+        <AppButton title="Add task" onPress={() => void handleCreateTask()} loading={submitting} />
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -120,7 +122,7 @@ export default function TasksScreen() {
               <AppButton
                 title="Mark complete"
                 variant="secondary"
-                onPress={() => handleCompleteTask(task.task_id)}
+                onPress={() => void handleCompleteTask(task.task_id)}
               />
             ) : null}
           </View>

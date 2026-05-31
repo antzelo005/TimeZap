@@ -6,21 +6,23 @@ import ScreenContainer from "../components/ScreenContainer";
 import { useAuth } from "../context/AuthContext";
 import colors from "../theme/colors";
 import spacing from "../theme/spacing";
+import type { AuthCredentials } from "../types/auth";
+import { getErrorMessage } from "../types/api";
 
 export default function RegisterScreen() {
   const { register, isAuthLoading } = useAuth();
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<AuthCredentials>({
     email: "",
     password: ""
   });
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string>("");
 
-  async function handleRegister() {
+  async function handleRegister(): Promise<void> {
     try {
       setError("");
       await register(form);
-    } catch (err) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
     }
   }
 
@@ -52,7 +54,7 @@ export default function RegisterScreen() {
             secureTextEntry
           />
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <AppButton title="Register" onPress={handleRegister} loading={isAuthLoading} />
+          <AppButton title="Register" onPress={() => void handleRegister()} loading={isAuthLoading} />
         </View>
       </View>
     </ScreenContainer>

@@ -22,7 +22,7 @@ export default function AccountScreen() {
         <Text style={styles.label}>Signed in as</Text>
         <Text style={styles.value}>{user?.email || "Unknown user"}</Text>
         <Text style={styles.meta}>API base URL: {API_BASE_URL}</Text>
-        <AppButton title="Logout" onPress={logout} variant="secondary" />
+        <AppButton title="Logout" onPress={() => void logout()} variant="danger" />
       </View>
     </ScreenContainer>
   );

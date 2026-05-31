@@ -3,15 +3,26 @@ import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
 import colors from "../theme/colors";
 import spacing from "../theme/spacing";
 
+export type AppButtonVariant = "primary" | "secondary" | "accent" | "danger";
+
+interface AppButtonProps {
+  title: string;
+  onPress: () => void;
+  loading?: boolean;
+  variant?: AppButtonVariant;
+  disabled?: boolean;
+}
+
 export default function AppButton({
   title,
   onPress,
   loading = false,
   variant = "primary",
   disabled = false
-}) {
+}: AppButtonProps) {
   const isSecondary = variant === "secondary";
   const isAccent = variant === "accent";
+  const isDanger = variant === "danger";
 
   return (
     <Pressable
@@ -19,20 +30,36 @@ export default function AppButton({
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
-        isSecondary ? styles.secondary : isAccent ? styles.accent : styles.primary,
+        isDanger
+          ? styles.danger
+          : isSecondary
+            ? styles.secondary
+            : isAccent
+              ? styles.accent
+              : styles.primary,
         (disabled || loading) && styles.disabled,
         pressed && !disabled && !loading ? styles.pressed : null
       ]}
     >
       {loading ? (
         <ActivityIndicator
-          color={isSecondary || isAccent ? colors.primaryBlue : colors.textOnPrimary}
+          color={
+            isDanger
+              ? colors.danger
+              : isSecondary || isAccent
+                ? colors.primaryBlue
+                : colors.textOnPrimary
+          }
         />
       ) : (
         <Text
           style={[
             styles.label,
-            isSecondary || isAccent ? styles.secondaryLabel : styles.primaryLabel
+            isDanger
+              ? styles.dangerLabel
+              : isSecondary || isAccent
+                ? styles.secondaryLabel
+                : styles.primaryLabel
           ]}
         >
           {title}
@@ -44,8 +71,8 @@ export default function AppButton({
 
 const styles = StyleSheet.create({
   button: {
-    minHeight: 50,
-    borderRadius: 16,
+    minHeight: 46,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: spacing.md,
@@ -63,6 +90,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.zapYellowSoft,
     borderColor: colors.zapYellow
   },
+  danger: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.danger
+  },
   disabled: {
     opacity: 0.6
   },
@@ -78,5 +109,8 @@ const styles = StyleSheet.create({
   },
   secondaryLabel: {
     color: colors.primaryBlueDark
+  },
+  dangerLabel: {
+    color: colors.danger
   }
 });

@@ -1,26 +1,32 @@
 import React, { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
 import ScreenContainer from "../components/ScreenContainer";
 import { useAuth } from "../context/AuthContext";
 import colors from "../theme/colors";
 import spacing from "../theme/spacing";
+import type { AuthCredentials } from "../types/auth";
+import type { AuthStackParamList } from "../types/navigation";
+import { getErrorMessage } from "../types/api";
 
-export default function LoginScreen({ navigation }) {
+type Props = NativeStackScreenProps<AuthStackParamList, "Login">;
+
+export default function LoginScreen({ navigation }: Props) {
   const { login, isAuthLoading } = useAuth();
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<AuthCredentials>({
     email: "",
     password: ""
   });
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string>("");
 
-  async function handleLogin() {
+  async function handleLogin(): Promise<void> {
     try {
       setError("");
       await login(form);
-    } catch (err) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
     }
   }
 
@@ -55,7 +61,7 @@ export default function LoginScreen({ navigation }) {
             secureTextEntry
           />
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <AppButton title="Login" onPress={handleLogin} loading={isAuthLoading} />
+          <AppButton title="Login" onPress={() => void handleLogin()} loading={isAuthLoading} />
           <AppButton
             title="Create account"
             variant="secondary"

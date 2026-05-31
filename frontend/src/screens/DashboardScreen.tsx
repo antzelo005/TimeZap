@@ -1,12 +1,20 @@
 import React, { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import ScreenContainer from "../components/ScreenContainer";
 import AppButton from "../components/AppButton";
 import { getDashboardToday } from "../api/dashboard.api";
 import colors from "../theme/colors";
 import spacing from "../theme/spacing";
+import type { DashboardTodayResponse } from "../types/dashboard";
+import { getErrorMessage } from "../types/api";
 
-function MetricCard({ label, value, helper }) {
+interface MetricCardProps {
+  label: string;
+  value: number;
+  helper?: string;
+}
+
+function MetricCard({ label, value, helper }: MetricCardProps) {
   return (
     <View style={styles.metricCard}>
       <View style={styles.metricHeader}>
@@ -24,16 +32,18 @@ function MetricCard({ label, value, helper }) {
 }
 
 export default function DashboardScreen() {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const { width } = useWindowDimensions();
+  const isWide = width >= 900;
+  const [data, setData] = useState<DashboardTodayResponse | null>(null);
+  const [error, setError] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
 
   useEffect(() => {
-    loadDashboard();
+    void loadDashboard();
   }, []);
 
-  async function loadDashboard(isRefresh = false) {
+  async function loadDashboard(isRefresh = false): Promise<void> {
     try {
       setError("");
       if (isRefresh) {
@@ -44,8 +54,8 @@ export default function DashboardScreen() {
 
       const response = await getDashboardToday();
       setData(response);
-    } catch (err) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -64,14 +74,14 @@ export default function DashboardScreen() {
       <AppButton
         title={refreshing ? "Refreshing..." : "Refresh"}
         variant="secondary"
-        onPress={() => loadDashboard(true)}
+        onPress={() => void loadDashboard(true)}
         loading={refreshing}
       />
 
       {error ? (
         <View style={styles.messageCard}>
           <Text style={styles.errorText}>{error}</Text>
-          <AppButton title="Retry" onPress={() => loadDashboard()} variant="secondary" />
+          <AppButton title="Retry" onPress={() => void loadDashboard()} variant="secondary" />
         </View>
       ) : null}
 
@@ -80,9 +90,25 @@ export default function DashboardScreen() {
       {data ? (
         <>
           <View style={styles.grid}>
-            <MetricCard label="Tasks Today" value={data.tasks.total} helper={`${data.tasks.completed} completed`} />
-            <MetricCard label="Habits Today" value={data.habits.total} helper={`${data.habits.completed} completed`} />
-            <MetricCard label="Current Streak" value={data.current_streak} helper="Best active run" />
+            <View style={[styles.metricGrid, isWide && styles.metricGridWide]}>
+              <View style={[styles.metricGridItem, isWide && styles.metricGridItemWide]}>
+                <MetricCard
+                  label="Tasks Today"
+                  value={data.tasks.total}
+                  helper={`${data.tasks.completed} completed`}
+                />
+              </View>
+              <View style={[styles.metricGridItem, isWide && styles.metricGridItemWide]}>
+                <MetricCard
+                  label="Habits Today"
+                  value={data.habits.total}
+                  helper={`${data.habits.completed} completed`}
+                />
+              </View>
+              <View style={[styles.metricGridItem, isWide && styles.metricGridItemWide]}>
+                <MetricCard label="Current Streak" value={data.current_streak} helper="Best active run" />
+              </View>
+            </View>
           </View>
 
           <View style={styles.section}>
@@ -161,15 +187,28 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     color: colors.textSecondary,
-    marginBottom: spacing.sm
+    marginBottom: spacing.xs
   },
   grid: {
     gap: spacing.md
   },
+  metricGrid: {
+    gap: spacing.md
+  },
+  metricGridWide: {
+    flexDirection: "row",
+    alignItems: "stretch"
+  },
+  metricGridItem: {
+    width: "100%"
+  },
+  metricGridItemWide: {
+    flex: 1
+  },
   metricCard: {
     backgroundColor: colors.surface,
     borderRadius: 22,
-    padding: spacing.lg,
+    padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
     gap: spacing.xs,
@@ -197,7 +236,7 @@ const styles = StyleSheet.create({
     fontWeight: "800"
   },
   metricValue: {
-    fontSize: 34,
+    fontSize: 30,
     fontWeight: "700",
     color: colors.primaryBlueDark
   },
@@ -251,11 +290,6 @@ const styles = StyleSheet.create({
   neutralChip: {
     color: colors.textSecondary,
     backgroundColor: colors.surfaceMuted
-  },
-  itemMeta: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginTop: spacing.xs
   },
   muted: {
     color: colors.textSecondary,

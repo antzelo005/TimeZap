@@ -1,9 +1,17 @@
 import React from "react";
+import type { StyleProp, TextStyle } from "react-native";
 import { StyleSheet, Text, TextInput, View } from "react-native";
+import type { TextInputProps } from "react-native";
 import colors from "../theme/colors";
 import spacing from "../theme/spacing";
 
-export default function AppInput({ label, error, style, ...props }) {
+interface AppInputProps extends TextInputProps {
+  label?: string;
+  error?: string;
+  style?: StyleProp<TextStyle>;
+}
+
+export default function AppInput({ label, error, style, ...props }: AppInputProps) {
   return (
     <View style={styles.wrapper}>
       {label ? <Text style={styles.label}>{label}</Text> : null}

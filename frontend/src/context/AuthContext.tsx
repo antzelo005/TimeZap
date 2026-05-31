@@ -1,20 +1,41 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { clearToken, getToken, setToken } from "../storage/tokenStorage";
-import { getCurrentUser, login as loginRequest, register as registerRequest } from "../api/auth.api";
+import {
+  getCurrentUser,
+  login as loginRequest,
+  register as registerRequest
+} from "../api/auth.api";
+import type { AuthCredentials, AuthResponse, User } from "../types/auth";
 
-const AuthContext = createContext(null);
+interface AuthContextValue {
+  user: User | null;
+  token: string | null;
+  isAuthenticated: boolean;
+  isBootstrapping: boolean;
+  isAuthLoading: boolean;
+  login: (credentials: AuthCredentials) => Promise<AuthResponse>;
+  register: (payload: AuthCredentials) => Promise<AuthResponse>;
+  logout: () => Promise<void>;
+}
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [token, setTokenState] = useState(null);
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
-  const [isAuthLoading, setIsAuthLoading] = useState(false);
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+export function AuthProvider({ children }: AuthProviderProps) {
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setTokenState] = useState<string | null>(null);
+  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(true);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(false);
 
   useEffect(() => {
-    bootstrapAuth();
+    void bootstrapAuth();
   }, []);
 
-  async function bootstrapAuth() {
+  async function bootstrapAuth(): Promise<void> {
     try {
       const storedToken = await getToken();
 
@@ -26,7 +47,7 @@ export function AuthProvider({ children }) {
       setTokenState(storedToken);
       const response = await getCurrentUser();
       setUser(response.user);
-    } catch (error) {
+    } catch {
       await clearToken();
       setTokenState(null);
       setUser(null);
@@ -35,7 +56,7 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function login(credentials) {
+  async function login(credentials: AuthCredentials): Promise<AuthResponse> {
     setIsAuthLoading(true);
     try {
       const response = await loginRequest(credentials);
@@ -48,7 +69,7 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function register(payload) {
+  async function register(payload: AuthCredentials): Promise<AuthResponse> {
     setIsAuthLoading(true);
     try {
       const response = await registerRequest(payload);
@@ -61,13 +82,13 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function logout() {
+  async function logout(): Promise<void> {
     await clearToken();
     setTokenState(null);
     setUser(null);
   }
 
-  const value = {
+  const value: AuthContextValue = {
     user,
     token,
     isAuthenticated: Boolean(token && user),
@@ -81,7 +102,7 @@ export function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth() {
+export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
 
   if (!context) {
