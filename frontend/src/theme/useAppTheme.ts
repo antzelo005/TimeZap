@@ -1,22 +1,28 @@
 import { useColorScheme } from "react-native";
 import { useSettings } from "../context/SettingsContext";
 import spacing from "./spacing";
-import { getThemeColors } from "./theme";
+import { getThemeColors, type ResolvedTheme } from "./theme";
+import type { ThemeMode } from "../types/settings";
+
+function normalizeThemeMode(theme: string | undefined): ThemeMode {
+  return theme === "dark" || theme === "system" ? theme : "light";
+}
 
 export function useAppTheme() {
   const { settings } = useSettings();
   const systemColorScheme = useColorScheme();
+  const themeMode = normalizeThemeMode(settings?.theme);
   const resolvedTheme =
-    settings.theme === "system"
+    themeMode === "system"
       ? systemColorScheme === "dark"
         ? "dark"
         : "light"
-      : settings.theme;
+      : themeMode;
 
   return {
-    colors: getThemeColors(resolvedTheme),
+    colors: getThemeColors(resolvedTheme as ResolvedTheme),
     spacing,
-    themeMode: settings.theme,
+    themeMode,
     isDark: resolvedTheme === "dark"
   };
 }

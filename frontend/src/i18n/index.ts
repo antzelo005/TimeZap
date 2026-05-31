@@ -12,6 +12,10 @@ const locales = {
 
 type TranslationKey = keyof typeof en;
 
+function normalizeLanguage(language: string | undefined): LanguageCode {
+  return language === "el" || language === "ro" ? language : "en";
+}
+
 function interpolate(template: string, variables?: Record<string, string | number>): string {
   if (!variables) {
     return template;
@@ -25,10 +29,11 @@ function interpolate(template: string, variables?: Record<string, string | numbe
 
 export function useTranslation() {
   const { settings, updateSettings } = useSettings();
+  const language = normalizeLanguage(settings?.language);
+  const dictionary = locales[language] ?? locales.en;
 
   function t(key: TranslationKey, variables?: Record<string, string | number>): string {
-    const language = settings.language as LanguageCode;
-    const value = locales[language][key] ?? locales.en[key] ?? key;
+    const value = dictionary[key] ?? locales.en[key] ?? key;
     return interpolate(value, variables);
   }
 
@@ -38,7 +43,7 @@ export function useTranslation() {
 
   return {
     t,
-    language: settings.language,
+    language,
     setLanguage
   };
 }

@@ -8,6 +8,10 @@ import {
 } from "../api/auth.api";
 import type { AuthCredentials, AuthResponse, User } from "../types/auth";
 
+const TOKEN_READ_TIMEOUT_MS = 4000;
+const CURRENT_USER_TIMEOUT_MS = 8000;
+const TOKEN_CLEAR_TIMEOUT_MS = 2000;
+
 interface AuthContextValue {
   user: User | null;
   token: string | null;
@@ -25,6 +29,27 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error("Startup request timed out"));
+    }, timeoutMs);
+
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => clearTimeout(timeoutId));
+  });
+}
+
+async function clearTokenSafely(): Promise<void> {
+  try {
+    await withTimeout(clearToken(), TOKEN_CLEAR_TIMEOUT_MS);
+  } catch {
+    // Startup must continue even if browser storage is unavailable.
+  }
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setTokenState] = useState<string | null>(null);
@@ -37,7 +62,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   async function bootstrapAuth(): Promise<void> {
     try {
-      const storedToken = await getToken();
+      const storedToken = await withTimeout(getToken(), TOKEN_READ_TIMEOUT_MS);
 
       if (!storedToken) {
         setIsBootstrapping(false);
@@ -45,10 +70,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       setTokenState(storedToken);
-      const response = await getCurrentUser();
+      const response = await withTimeout(getCurrentUser(), CURRENT_USER_TIMEOUT_MS);
       setUser(response.user);
     } catch {
-      await clearToken();
+      await clearTokenSafely();
       setTokenState(null);
       setUser(null);
     } finally {
