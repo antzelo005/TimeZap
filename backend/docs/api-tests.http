@@ -1,0 +1,100 @@
+@baseUrl = http://localhost:3000
+@email = test@timezap.com
+@password = 123456
+@token = REPLACE_WITH_JWT_TOKEN
+@taskId = 1
+@habitId = 1
+@today = 2026-05-31
+
+### Health
+GET {{baseUrl}}/api/health
+
+### DB Health
+GET {{baseUrl}}/api/db-health
+
+### Register
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### Login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### Me
+GET {{baseUrl}}/api/auth/me
+Authorization: Bearer {{token}}
+
+### Create Task
+POST {{baseUrl}}/api/tasks
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Finish report",
+  "description": "Complete thesis report section",
+  "due_date": "2026-06-01",
+  "due_time": "18:00",
+  "is_all_day": false,
+  "emoji": "note",
+  "color": "#7B61FF"
+}
+
+### Get Tasks
+GET {{baseUrl}}/api/tasks
+Authorization: Bearer {{token}}
+
+### Complete Task
+PATCH {{baseUrl}}/api/tasks/{{taskId}}/complete
+Authorization: Bearer {{token}}
+
+### Create Habit
+POST {{baseUrl}}/api/habits
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Read for 20 min",
+  "description": "Daily reading habit",
+  "start_date": "2026-06-01",
+  "emoji": "book",
+  "color": "#7B61FF",
+  "rule": {
+    "recurrence_type": "daily",
+    "interval_value": 1,
+    "target_count": 1,
+    "target_period": null,
+    "week_start": "monday",
+    "days": []
+  }
+}
+
+### Get Habits
+GET {{baseUrl}}/api/habits
+Authorization: Bearer {{token}}
+
+### Log Habit
+POST {{baseUrl}}/api/habits/{{habitId}}/log
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "date": "{{today}}"
+}
+
+### Get Streak
+GET {{baseUrl}}/api/habits/{{habitId}}/streak
+Authorization: Bearer {{token}}
+
+### Dashboard Today
+GET {{baseUrl}}/api/dashboard/today
+Authorization: Bearer {{token}}

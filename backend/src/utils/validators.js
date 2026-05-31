@@ -47,7 +47,7 @@ function parseId(value, fieldName) {
     throw createAppError(400, `${fieldName} must be a valid numeric identifier`);
   }
 
-  return Number(value);
+  return String(value);
 }
 
 function getTodayDateString() {

@@ -18,6 +18,23 @@ const ALLOWED_RECURRENCE_TYPES = [
 ];
 const ALLOWED_WEEK_STARTS = ["monday", "sunday"];
 
+function getDefaultTargetPeriod(recurrenceType, providedTargetPeriod) {
+  if (providedTargetPeriod) {
+    return providedTargetPeriod;
+  }
+
+  switch (recurrenceType) {
+    case "daily":
+      return "day";
+    case "x_times_per_week":
+      return "week";
+    case "x_times_per_month":
+      return "month";
+    default:
+      return "custom";
+  }
+}
+
 function mapHabitRow(habitRow, ruleRow, dayRows) {
   return {
     habit_id: habitRow.habit_id,
@@ -256,7 +273,7 @@ async function createHabit(req, res, next) {
         rule.recurrence_type || "daily",
         rule.interval_value || 1,
         rule.target_count || 1,
-        rule.target_period || null,
+        getDefaultTargetPeriod(rule.recurrence_type || "daily", rule.target_period),
         rule.week_start || "monday"
       ]
     );
@@ -354,7 +371,10 @@ async function updateHabit(req, res, next) {
           rule.recurrence_type || existingHabit.rule.recurrence_type,
           rule.interval_value || existingHabit.rule.interval_value,
           rule.target_count || existingHabit.rule.target_count,
-          rule.target_period ?? existingHabit.rule.target_period,
+          getDefaultTargetPeriod(
+            rule.recurrence_type || existingHabit.rule.recurrence_type,
+            rule.target_period ?? existingHabit.rule.target_period
+          ),
           rule.week_start || existingHabit.rule.week_start,
           existingHabit.rule.rule_id,
           habitId
