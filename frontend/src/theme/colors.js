@@ -1,13 +1,26 @@
 export default {
-  background: "#F5F1E8",
-  surface: "#FFFDF8",
-  surfaceMuted: "#EFE7DA",
-  text: "#1F1E1A",
-  textMuted: "#6E675E",
-  primary: "#2E6F57",
-  primarySoft: "#DDEEE6",
-  border: "#D8CCBC",
-  danger: "#A63D40",
-  success: "#2D6A4F",
-  white: "#FFFFFF"
+  primaryBlue: "#2563EB",
+  primaryBlueDark: "#1D4ED8",
+  primaryBlueSoft: "#DBEAFE",
+  primaryBlueUltraSoft: "#EFF6FF",
+
+  zapYellow: "#FACC15",
+  zapYellowDark: "#EAB308",
+  zapYellowSoft: "#FEF3C7",
+
+  appBackground: "#F8FAFC",
+  surface: "#FFFFFF",
+  surfaceMuted: "#F1F5F9",
+  border: "#E2E8F0",
+
+  textPrimary: "#0F172A",
+  textSecondary: "#64748B",
+  textMuted: "#94A3B8",
+  textOnPrimary: "#FFFFFF",
+
+  danger: "#DC2626",
+  dangerSoft: "#FEE2E2",
+  warning: "#F59E0B",
+  warningSoft: "#FEF3C7",
+  success: "#2563EB"
 };

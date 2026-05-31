@@ -28,6 +28,12 @@ export default function LoginScreen({ navigation }) {
     <ScreenContainer scroll={false}>
       <View style={styles.container}>
         <View style={styles.hero}>
+          <View style={styles.brandRow}>
+            <View style={styles.zapBadge}>
+              <Text style={styles.zapText}>⚡</Text>
+            </View>
+            <Text style={styles.eyebrow}>Focused productivity</Text>
+          </View>
           <Text style={styles.title}>TimeZap</Text>
           <Text style={styles.subtitle}>A clean task and habit management workspace.</Text>
         </View>
@@ -67,28 +73,58 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     justifyContent: "center",
     gap: spacing.xl,
-    backgroundColor: colors.background
+    backgroundColor: colors.appBackground
   },
   hero: {
     gap: spacing.sm
   },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm
+  },
+  zapBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.zapYellowSoft,
+    borderWidth: 1,
+    borderColor: colors.zapYellow
+  },
+  zapText: {
+    color: colors.primaryBlueDark,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  eyebrow: {
+    fontSize: 13,
+    color: colors.primaryBlue,
+    fontWeight: "700"
+  },
   title: {
     fontSize: 38,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
   },
   subtitle: {
     fontSize: 16,
-    color: colors.textMuted,
+    color: colors.textSecondary,
     lineHeight: 24
   },
   form: {
     gap: spacing.md,
     backgroundColor: colors.surface,
     padding: spacing.lg,
-    borderRadius: 22,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: colors.border,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2
   },
   error: {
     color: colors.danger,

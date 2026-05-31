@@ -85,7 +85,12 @@ export default function HabitsScreen() {
 
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Habits</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Habits</Text>
+        <View style={styles.headerPill}>
+          <Text style={styles.headerPillText}>⚡ Streaks</Text>
+        </View>
+      </View>
       <View style={styles.formCard}>
         <Text style={styles.sectionTitle}>New Habit</Text>
         <AppInput
@@ -109,14 +114,12 @@ export default function HabitsScreen() {
       <View style={styles.list}>
         {habits.map((habit) => (
           <View key={habit.habit_id} style={styles.itemCard}>
-            <Text style={styles.itemTitle}>{habit.title}</Text>
+            <View style={styles.itemHeader}>
+              <Text style={styles.itemTitle}>{habit.title}</Text>
+              <Text style={styles.streakChip}>{streaks[habit.habit_id] || 0} day streak</Text>
+            </View>
             <Text style={styles.itemMeta}>Start date: {habit.start_date}</Text>
-            <Text style={styles.itemMeta}>Current streak: {streaks[habit.habit_id] || 0}</Text>
-            <AppButton
-              title="Log today"
-              variant="secondary"
-              onPress={() => handleLogHabit(habit.habit_id)}
-            />
+            <AppButton title="Log today" variant="accent" onPress={() => handleLogHabit(habit.habit_id)} />
           </View>
         ))}
       </View>
@@ -128,20 +131,44 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.md
+  },
+  headerPill: {
+    borderRadius: 999,
+    backgroundColor: colors.zapYellowSoft,
+    borderWidth: 1,
+    borderColor: colors.zapYellow,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6
+  },
+  headerPillText: {
+    fontSize: 12,
+    color: colors.primaryBlueDark,
+    fontWeight: "700"
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
   },
   formCard: {
     backgroundColor: colors.surface,
-    borderRadius: 20,
+    borderRadius: 22,
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    gap: spacing.md
+    gap: spacing.md,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1
   },
   list: {
     gap: spacing.md
@@ -154,19 +181,35 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.sm
   },
+  itemHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.sm
+  },
   itemTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: colors.text
+    color: colors.textPrimary
+  },
+  streakChip: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.primaryBlueDark,
+    backgroundColor: colors.zapYellowSoft,
+    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    overflow: "hidden"
   },
   itemMeta: {
     fontSize: 13,
-    color: colors.textMuted
+    color: colors.textSecondary
   },
   error: {
     color: colors.danger
   },
   muted: {
-    color: colors.textMuted
+    color: colors.textSecondary
   }
 });

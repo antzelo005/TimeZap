@@ -11,11 +11,11 @@ const navigationTheme = {
   ...DefaultTheme,
   colors: {
     ...DefaultTheme.colors,
-    background: colors.background,
+    background: colors.appBackground,
     card: colors.surface,
-    text: colors.text,
+    text: colors.textPrimary,
     border: colors.border,
-    primary: colors.primary
+    primary: colors.primaryBlue
   }
 };
 
@@ -29,10 +29,10 @@ function AppContent() {
           flex: 1,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: colors.background
+          backgroundColor: colors.appBackground
         }}
       >
-        <ActivityIndicator size="large" color={colors.primary} />
+        <ActivityIndicator size="large" color={colors.primaryBlue} />
       </View>
     );
   }

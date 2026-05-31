@@ -7,7 +7,12 @@ import spacing from "../theme/spacing";
 export default function CalendarScreen() {
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Calendar</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Calendar</Text>
+        <View style={styles.headerPill}>
+          <Text style={styles.headerPillText}>Upcoming</Text>
+        </View>
+      </View>
       <View style={styles.card}>
         <Text style={styles.heading}>Planned for next milestone</Text>
         <Text style={styles.body}>
@@ -23,11 +28,30 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.md
+  },
+  headerPill: {
+    borderRadius: 999,
+    backgroundColor: colors.primaryBlueUltraSoft,
+    borderWidth: 1,
+    borderColor: colors.primaryBlueSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6
+  },
+  headerPillText: {
+    fontSize: 12,
+    color: colors.primaryBlueDark,
+    fontWeight: "700"
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 20,
+    borderRadius: 22,
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
@@ -36,11 +60,11 @@ const styles = StyleSheet.create({
   heading: {
     fontSize: 18,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
   },
   body: {
     fontSize: 15,
     lineHeight: 24,
-    color: colors.textMuted
+    color: colors.textSecondary
   }
 });

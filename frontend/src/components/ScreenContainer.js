@@ -22,10 +22,11 @@ export default function ScreenContainer({ children, scroll = true }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background
+    backgroundColor: colors.appBackground
   },
   content: {
     padding: spacing.lg,
+    paddingBottom: spacing.xl,
     gap: spacing.md
   }
 });

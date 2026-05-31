@@ -9,8 +9,15 @@ import spacing from "../theme/spacing";
 function MetricCard({ label, value, helper }) {
   return (
     <View style={styles.metricCard}>
+      <View style={styles.metricHeader}>
+        <Text style={styles.metricLabel}>{label}</Text>
+        {label === "Current Streak" ? (
+          <View style={styles.metricAccent}>
+            <Text style={styles.metricAccentText}>⚡</Text>
+          </View>
+        ) : null}
+      </View>
       <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricLabel}>{label}</Text>
       {helper ? <Text style={styles.metricHelper}>{helper}</Text> : null}
     </View>
   );
@@ -47,7 +54,12 @@ export default function DashboardScreen() {
 
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Today</Text>
+      <View style={styles.headerRow}>
+        <View style={styles.zapBadge}>
+          <Text style={styles.zapText}>⚡</Text>
+        </View>
+        <Text style={styles.title}>Today</Text>
+      </View>
       <Text style={styles.subtitle}>A compact view of current workload and consistency.</Text>
       <AppButton
         title={refreshing ? "Refreshing..." : "Refresh"}
@@ -81,7 +93,14 @@ export default function DashboardScreen() {
               data.tasks.items.map((task) => (
                 <View key={task.task_id} style={styles.itemCard}>
                   <Text style={styles.itemTitle}>{task.title}</Text>
-                  <Text style={styles.itemMeta}>{task.status}</Text>
+                  <Text
+                    style={[
+                      styles.itemChip,
+                      task.status === "completed" ? styles.blueChip : styles.neutralChip
+                    ]}
+                  >
+                    {task.status}
+                  </Text>
                 </View>
               ))
             )}
@@ -95,7 +114,12 @@ export default function DashboardScreen() {
               data.habits.items.map((habit) => (
                 <View key={habit.habit_id} style={styles.itemCard}>
                   <Text style={styles.itemTitle}>{habit.title}</Text>
-                  <Text style={styles.itemMeta}>
+                  <Text
+                    style={[
+                      styles.itemChip,
+                      habit.completed_today ? styles.yellowChip : styles.neutralChip
+                    ]}
+                  >
                     {habit.completed_today ? "Completed today" : "Pending"}
                   </Text>
                 </View>
@@ -112,11 +136,31 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 30,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm
+  },
+  zapBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.zapYellowSoft,
+    borderWidth: 1,
+    borderColor: colors.zapYellow
+  },
+  zapText: {
+    color: colors.primaryBlueDark,
+    fontSize: 15,
+    fontWeight: "800"
   },
   subtitle: {
     fontSize: 15,
-    color: colors.textMuted,
+    color: colors.textSecondary,
     marginBottom: spacing.sm
   },
   grid: {
@@ -124,25 +168,47 @@ const styles = StyleSheet.create({
   },
   metricCard: {
     backgroundColor: colors.surface,
-    borderRadius: 20,
+    borderRadius: 22,
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    gap: spacing.xs
+    gap: spacing.xs,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1
+  },
+  metricHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center"
+  },
+  metricAccent: {
+    backgroundColor: colors.zapYellowSoft,
+    borderWidth: 1,
+    borderColor: colors.zapYellow,
+    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4
+  },
+  metricAccentText: {
+    color: colors.primaryBlueDark,
+    fontWeight: "800"
   },
   metricValue: {
-    fontSize: 32,
+    fontSize: 34,
     fontWeight: "700",
-    color: colors.primary
+    color: colors.primaryBlueDark
   },
   metricLabel: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
-    color: colors.text
+    color: colors.textPrimary
   },
   metricHelper: {
     fontSize: 13,
-    color: colors.textMuted
+    color: colors.textSecondary
   },
   section: {
     gap: spacing.sm
@@ -150,27 +216,49 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
   },
   itemCard: {
     backgroundColor: colors.surface,
     borderRadius: 16,
     padding: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: colors.border,
+    gap: spacing.sm
   },
   itemTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: colors.text
+    color: colors.textPrimary
+  },
+  itemChip: {
+    alignSelf: "flex-start",
+    fontSize: 12,
+    fontWeight: "700",
+    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    overflow: "hidden"
+  },
+  blueChip: {
+    color: colors.primaryBlueDark,
+    backgroundColor: colors.primaryBlueUltraSoft
+  },
+  yellowChip: {
+    color: colors.primaryBlueDark,
+    backgroundColor: colors.zapYellowSoft
+  },
+  neutralChip: {
+    color: colors.textSecondary,
+    backgroundColor: colors.surfaceMuted
   },
   itemMeta: {
     fontSize: 13,
-    color: colors.textMuted,
+    color: colors.textSecondary,
     marginTop: spacing.xs
   },
   muted: {
-    color: colors.textMuted,
+    color: colors.textSecondary,
     fontSize: 14
   },
   messageCard: {

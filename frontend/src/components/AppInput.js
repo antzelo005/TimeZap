@@ -23,18 +23,18 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    color: colors.textMuted,
+    color: colors.textSecondary,
     fontWeight: "600"
   },
   input: {
-    minHeight: 48,
+    minHeight: 50,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 16,
     paddingHorizontal: spacing.md,
     fontSize: 15,
-    color: colors.text
+    color: colors.textPrimary
   },
   inputError: {
     borderColor: colors.danger

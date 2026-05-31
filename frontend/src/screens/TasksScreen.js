@@ -65,7 +65,12 @@ export default function TasksScreen() {
 
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Tasks</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Tasks</Text>
+        <View style={styles.headerPill}>
+          <Text style={styles.headerPillText}>Focus</Text>
+        </View>
+      </View>
       <View style={styles.formCard}>
         <Text style={styles.sectionTitle}>New Task</Text>
         <AppInput
@@ -102,7 +107,14 @@ export default function TasksScreen() {
                   {task.due_date || "No due date"} {task.due_time ? `at ${task.due_time}` : ""}
                 </Text>
               </View>
-              <Text style={styles.status}>{task.status}</Text>
+              <Text
+                style={[
+                  styles.statusChip,
+                  task.status === "completed" ? styles.statusDone : styles.statusPending
+                ]}
+              >
+                {task.status}
+              </Text>
             </View>
             {task.status !== "completed" ? (
               <AppButton
@@ -122,20 +134,44 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.md
+  },
+  headerPill: {
+    borderRadius: 999,
+    backgroundColor: colors.primaryBlueUltraSoft,
+    borderWidth: 1,
+    borderColor: colors.primaryBlueSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6
+  },
+  headerPillText: {
+    fontSize: 12,
+    color: colors.primaryBlueDark,
+    fontWeight: "700"
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
   },
   formCard: {
     backgroundColor: colors.surface,
-    borderRadius: 20,
+    borderRadius: 22,
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    gap: spacing.md
+    gap: spacing.md,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1
   },
   list: {
     gap: spacing.md
@@ -160,20 +196,33 @@ const styles = StyleSheet.create({
   itemTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: colors.text
+    color: colors.textPrimary
   },
   itemMeta: {
     fontSize: 13,
-    color: colors.textMuted
+    color: colors.textSecondary
   },
-  status: {
-    color: colors.primary,
-    fontWeight: "600"
+  statusChip: {
+    alignSelf: "flex-start",
+    fontWeight: "700",
+    fontSize: 12,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: "hidden"
+  },
+  statusDone: {
+    color: colors.primaryBlueDark,
+    backgroundColor: colors.primaryBlueUltraSoft
+  },
+  statusPending: {
+    color: colors.textSecondary,
+    backgroundColor: colors.surfaceMuted
   },
   error: {
     color: colors.danger
   },
   muted: {
-    color: colors.textMuted
+    color: colors.textSecondary
   }
 });

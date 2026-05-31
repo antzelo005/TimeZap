@@ -12,12 +12,17 @@ export default function AccountScreen() {
 
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Account</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Account</Text>
+        <View style={styles.headerPill}>
+          <Text style={styles.headerPillText}>Secure</Text>
+        </View>
+      </View>
       <View style={styles.card}>
         <Text style={styles.label}>Signed in as</Text>
         <Text style={styles.value}>{user?.email || "Unknown user"}</Text>
         <Text style={styles.meta}>API base URL: {API_BASE_URL}</Text>
-        <AppButton title="Logout" onPress={logout} />
+        <AppButton title="Logout" onPress={logout} variant="secondary" />
       </View>
     </ScreenContainer>
   );
@@ -27,11 +32,30 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.md
+  },
+  headerPill: {
+    borderRadius: 999,
+    backgroundColor: colors.primaryBlueUltraSoft,
+    borderWidth: 1,
+    borderColor: colors.primaryBlueSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6
+  },
+  headerPillText: {
+    fontSize: 12,
+    color: colors.primaryBlueDark,
+    fontWeight: "700"
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 20,
+    borderRadius: 22,
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
@@ -39,15 +63,15 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    color: colors.textMuted
+    color: colors.textSecondary
   },
   value: {
     fontSize: 18,
     fontWeight: "700",
-    color: colors.text
+    color: colors.textPrimary
   },
   meta: {
     fontSize: 13,
-    color: colors.textMuted
+    color: colors.textSecondary
   }
 });
