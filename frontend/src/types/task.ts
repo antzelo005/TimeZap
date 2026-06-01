@@ -24,9 +24,18 @@ export interface TaskResponse {
   task: Task;
 }
 
+export interface TaskDeleteResponse {
+  message: string;
+}
+
 export interface CreateTaskPayload {
   title: string;
+  description?: string | null;
   due_date: string | null;
   due_time: string | null;
   is_all_day: boolean;
+  emoji?: string | null;
+  color?: string | null;
 }
+
+export type UpdateTaskPayload = CreateTaskPayload;
