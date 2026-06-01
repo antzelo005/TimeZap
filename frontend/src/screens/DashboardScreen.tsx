@@ -1,71 +1,267 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import ScreenContainer from "../components/ScreenContainer";
+import { useFocusEffect } from "@react-navigation/native";
 import AppButton from "../components/AppButton";
+import ScreenContainer from "../components/ScreenContainer";
+import { getCalendarDay } from "../api/calendar.api";
 import { getDashboardToday } from "../api/dashboard.api";
-import type { DashboardTodayResponse } from "../types/dashboard";
-import { getErrorMessage } from "../types/api";
-import { useAppTheme } from "../theme/useAppTheme";
+import { getHabits } from "../api/habits.api";
+import { getTasks } from "../api/tasks.api";
+import { useSettings } from "../context/SettingsContext";
 import { useTranslation } from "../i18n";
+import { useAppTheme } from "../theme/useAppTheme";
+import { getErrorMessage } from "../types/api";
+import type { CalendarDayResponse } from "../types/calendar";
+import type { DashboardHabitItem, DashboardTaskItem, DashboardTodayResponse } from "../types/dashboard";
+import type { Habit } from "../types/habit";
+import type { Task } from "../types/task";
+import { createLocalDate, formatLocalDate } from "../utils/date";
+
+interface WeeklyProgressItem {
+  date: string;
+  label: string;
+  completed: number;
+  total: number;
+  percent: number;
+}
+
+interface DashboardViewData {
+  today: DashboardTodayResponse;
+  tasks: Task[];
+  habits: Habit[];
+  week: WeeklyProgressItem[];
+}
 
 interface MetricCardProps {
   label: string;
-  value: number;
-  helper?: string;
+  value: string | number;
+  helper: string;
+  accent?: "blue" | "yellow" | "danger";
 }
 
-function MetricCard({ label, value, helper }: MetricCardProps) {
-  const { colors, spacing } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
+interface SummaryStatProps {
+  label: string;
+  value: number;
+  accent?: "blue" | "yellow" | "danger" | "neutral";
+}
 
-  return (
-    <View style={styles.metricCard}>
-      <View style={styles.metricHeader}>
-        <Text style={styles.metricLabel}>{label}</Text>
-        {label ? (
-          <View style={styles.metricAccent}>
-            <Text style={styles.metricAccentText}>⚡</Text>
-          </View>
-        ) : null}
-      </View>
-      <Text style={styles.metricValue}>{value}</Text>
-      {helper ? <Text style={styles.metricHelper}>{helper}</Text> : null}
-    </View>
+function resolveLocale(language: string): string {
+  if (language === "el") {
+    return "el-GR";
+  }
+
+  if (language === "ro") {
+    return "ro-RO";
+  }
+
+  return "en-US";
+}
+
+function getWeekDates(today: Date, weekStartsOn: "monday" | "sunday"): Date[] {
+  const weekOffset = weekStartsOn === "monday" ? 1 : 0;
+  const startOffset = (today.getDay() - weekOffset + 7) % 7;
+  const weekStart = createLocalDate(today.getFullYear(), today.getMonth(), today.getDate() - startOffset);
+
+  return Array.from({ length: 7 }, (_, index) =>
+    createLocalDate(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + index)
   );
+}
+
+function getTaskTimeLabel(task: Task | DashboardTaskItem): string {
+  if ("is_all_day" in task && task.is_all_day) {
+    return "";
+  }
+
+  if (!task.due_time) {
+    return "";
+  }
+
+  return task.due_time.split(":").slice(0, 2).join(":");
+}
+
+function getNextUpcomingTask(tasks: Task[], today: string): Task | null {
+  const upcoming = tasks
+    .filter((task) => task.status === "pending" && task.due_date && task.due_date >= today)
+    .sort((first, second) => {
+      const dateCompare = (first.due_date ?? "").localeCompare(second.due_date ?? "");
+      if (dateCompare !== 0) {
+        return dateCompare;
+      }
+
+      return (first.due_time ?? "99:99:99").localeCompare(second.due_time ?? "99:99:99");
+    });
+
+  return upcoming[0] ?? null;
+}
+
+function calculateDayProgress(day: CalendarDayResponse, label: string): WeeklyProgressItem {
+  const completedTasks = day.tasks.filter((task) => task.status === "completed").length;
+  const completedHabits = day.habits.filter((habit) => habit.completed).length;
+  const completed = completedTasks + completedHabits;
+  const total = day.tasks.length + day.habits.length;
+
+  return {
+    date: day.date,
+    label,
+    completed,
+    total,
+    percent: total > 0 ? Math.round((completed / total) * 100) : 0
+  };
 }
 
 export default function DashboardScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 900;
+  const hasLoadedOnce = useRef<boolean>(false);
+  const { settings } = useSettings();
   const { colors, spacing } = useAppTheme();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
-  const [data, setData] = useState<DashboardTodayResponse | null>(null);
+  const locale = useMemo(() => resolveLocale(language), [language]);
+  const [data, setData] = useState<DashboardViewData | null>(null);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  useEffect(() => {
-    void loadDashboard();
-  }, []);
+  const today = useMemo(() => formatLocalDate(new Date()), []);
 
-  async function loadDashboard(isRefresh = false): Promise<void> {
-    try {
-      setError("");
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
+  const loadDashboard = useCallback(
+    async (isRefresh = false): Promise<void> => {
+      try {
+        setError("");
+        if (isRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
+        const weekDates = getWeekDates(new Date(), settings.week_starts_on);
+        const weekFormatter = new Intl.DateTimeFormat(locale, { weekday: "short" });
+        const [todayResponse, tasksResponse, habitsResponse, ...weekResponses] = await Promise.all([
+          getDashboardToday(),
+          getTasks(),
+          getHabits(),
+          ...weekDates.map((date) => getCalendarDay(formatLocalDate(date)))
+        ]);
+
+        const week = weekResponses.map((day, index) =>
+          calculateDayProgress(day, weekFormatter.format(weekDates[index]))
+        );
+
+        setData({
+          today: todayResponse,
+          tasks: tasksResponse.items ?? [],
+          habits: habitsResponse.items ?? [],
+          week
+        });
+      } catch (err: unknown) {
+        setError(getErrorMessage(err));
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
+    },
+    [locale, settings.week_starts_on]
+  );
 
-      const response = await getDashboardToday();
-      setData(response);
-    } catch (err: unknown) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+  useFocusEffect(
+    useCallback(() => {
+      void loadDashboard(hasLoadedOnce.current);
+      hasLoadedOnce.current = true;
+    }, [loadDashboard])
+  );
+
+  const dashboard = data?.today ?? null;
+  const todayTasks = dashboard?.tasks.items ?? [];
+  const todayHabits = dashboard?.habits.items ?? [];
+  const pendingToday = todayTasks.filter((task) => task.status === "pending");
+  const completedToday = todayTasks.filter((task) => task.status === "completed");
+  const overdueTasks = data?.tasks.filter((task) => task.is_overdue && task.status === "pending") ?? [];
+  const nextTask = data ? getNextUpcomingTask(data.tasks, today) : null;
+  const activeHabits = data?.habits.filter((habit) => habit.status === "active") ?? [];
+  const archivedHabits = data?.habits.filter((habit) => habit.status === "archived") ?? [];
+  const loggedToday = todayHabits.filter((habit) => habit.completed_today);
+  const notLoggedToday = todayHabits.filter((habit) => !habit.completed_today);
+  const nextHabit = notLoggedToday[0] ?? null;
+  const weeklyTotal = data?.week.reduce((total, item) => total + item.total, 0) ?? 0;
+  const weeklyCompleted = data?.week.reduce((total, item) => total + item.completed, 0) ?? 0;
+  const weeklyPercent = weeklyTotal > 0 ? Math.round((weeklyCompleted / weeklyTotal) * 100) : 0;
+
+  function renderMetricCard({ label, value, helper, accent = "blue" }: MetricCardProps) {
+    return (
+      <View style={styles.metricCard}>
+        <View style={styles.metricHeader}>
+          <Text style={styles.metricLabel}>{label}</Text>
+          <View
+            style={[
+              styles.metricAccent,
+              accent === "yellow" ? styles.metricAccentYellow : null,
+              accent === "danger" ? styles.metricAccentDanger : null
+            ]}
+          >
+            <Text
+              style={[
+                styles.metricAccentText,
+                accent === "danger" ? styles.metricAccentTextDanger : null
+              ]}
+            >
+              {accent === "yellow" ? "⚡" : accent === "danger" ? "!" : "✓"}
+            </Text>
+          </View>
+        </View>
+        <Text
+          style={[
+            styles.metricValue,
+            accent === "yellow" ? styles.metricValueYellow : null,
+            accent === "danger" ? styles.metricValueDanger : null
+          ]}
+        >
+          {value}
+        </Text>
+        <Text style={styles.metricHelper}>{helper}</Text>
+      </View>
+    );
+  }
+
+  function renderSummaryStat({ label, value, accent = "neutral" }: SummaryStatProps) {
+    return (
+      <View style={styles.summaryStat}>
+        <Text
+          style={[
+            styles.summaryValue,
+            accent === "blue" ? styles.summaryValueBlue : null,
+            accent === "yellow" ? styles.summaryValueYellow : null,
+            accent === "danger" ? styles.summaryValueDanger : null
+          ]}
+        >
+          {value}
+        </Text>
+        <Text style={styles.summaryLabel}>{label}</Text>
+      </View>
+    );
+  }
+
+  function renderTaskItem(task: Task | DashboardTaskItem, fallbackDate?: string) {
+    const time = getTaskTimeLabel(task);
+    const dueDate = task.due_date ?? fallbackDate ?? t("tasks.noDueDate");
+
+    return (
+      <View key={task.task_id} style={styles.compactItem}>
+        <Text style={styles.compactItemTitle}>{task.title}</Text>
+        <Text style={styles.compactItemMeta}>{time ? `${dueDate} / ${time}` : dueDate}</Text>
+      </View>
+    );
+  }
+
+  function renderHabitItem(habit: DashboardHabitItem) {
+    return (
+      <View key={habit.habit_id} style={styles.compactItem}>
+        <Text style={styles.compactItemTitle}>{habit.title}</Text>
+        <Text style={styles.compactItemMeta}>
+          {habit.completed_today ? t("dashboard.completedToday") : t("habits.notLoggedToday")}
+        </Text>
+      </View>
+    );
   }
 
   return (
@@ -74,15 +270,22 @@ export default function DashboardScreen() {
         <View style={styles.zapBadge}>
           <Text style={styles.zapText}>⚡</Text>
         </View>
-        <Text style={styles.title}>{t("dashboard.title")}</Text>
+        <View style={styles.headerText}>
+          <Text style={styles.title}>{t("dashboard.title")}</Text>
+          <Text style={styles.subtitle}>{t("dashboard.subtitle")}</Text>
+        </View>
       </View>
-      <Text style={styles.subtitle}>{t("dashboard.subtitle")}</Text>
-      <AppButton
-        title={refreshing ? t("common.loading") : t("common.refresh")}
-        variant="secondary"
-        onPress={() => void loadDashboard(true)}
-        loading={refreshing}
-      />
+
+      <View style={styles.refreshRow}>
+        <Text style={styles.dateText}>{dashboard?.date ?? today}</Text>
+        <AppButton
+          title={refreshing ? t("common.loading") : t("common.refresh")}
+          variant="secondary"
+          onPress={() => void loadDashboard(true)}
+          loading={refreshing}
+          style={styles.refreshButton}
+        />
+      </View>
 
       {error ? (
         <View style={styles.messageCard}>
@@ -93,74 +296,128 @@ export default function DashboardScreen() {
 
       {loading && !data ? <Text style={styles.muted}>{t("common.loading")}</Text> : null}
 
-      {data ? (
+      {dashboard && data ? (
         <>
-          <View style={styles.grid}>
-            <View style={[styles.metricGrid, isWide && styles.metricGridWide]}>
-              <View style={[styles.metricGridItem, isWide && styles.metricGridItemWide]}>
-                <MetricCard
-                  label={t("dashboard.tasksToday")}
-                  value={data.tasks.total}
-                  helper={t("dashboard.completedCount", { count: data.tasks.completed })}
-                />
-              </View>
-              <View style={[styles.metricGridItem, isWide && styles.metricGridItemWide]}>
-                <MetricCard
-                  label={t("dashboard.habitsToday")}
-                  value={data.habits.total}
-                  helper={t("dashboard.completedCount", { count: data.habits.completed })}
-                />
-              </View>
-              <View style={[styles.metricGridItem, isWide && styles.metricGridItemWide]}>
-                <MetricCard
-                  label={t("dashboard.currentStreak")}
-                  value={data.current_streak}
-                  helper={t("dashboard.bestActiveRun")}
-                />
-              </View>
+          <View style={[styles.metricGrid, isWide ? styles.metricGridWide : null]}>
+            <View style={[styles.metricGridItem, isWide ? styles.metricGridItemWide : null]}>
+              {renderMetricCard({
+                label: t("dashboard.tasksToday"),
+                value: `${dashboard.tasks.completed}/${dashboard.tasks.total}`,
+                helper: t("dashboard.tasksTodayHelper", { count: pendingToday.length })
+              })}
+            </View>
+            <View style={[styles.metricGridItem, isWide ? styles.metricGridItemWide : null]}>
+              {renderMetricCard({
+                label: t("dashboard.habitsToday"),
+                value: `${dashboard.habits.completed}/${dashboard.habits.total}`,
+                helper: t("dashboard.habitsTodayHelper", { count: notLoggedToday.length }),
+                accent: "yellow"
+              })}
+            </View>
+            <View style={[styles.metricGridItem, isWide ? styles.metricGridItemWide : null]}>
+              {renderMetricCard({
+                label: t("dashboard.currentStreak"),
+                value: dashboard.current_streak,
+                helper: t("dashboard.bestActiveRun"),
+                accent: "yellow"
+              })}
             </View>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t("dashboard.tasksSection")}</Text>
-            {data.tasks.items.length === 0 ? (
-              <Text style={styles.muted}>{t("dashboard.noTasksToday")}</Text>
-            ) : (
-              data.tasks.items.map((task) => (
-                <View key={task.task_id} style={styles.itemCard}>
-                  <Text style={styles.itemTitle}>{task.title}</Text>
-                  <Text
-                    style={[
-                      styles.itemChip,
-                      task.status === "completed" ? styles.blueChip : styles.neutralChip
-                    ]}
-                  >
-                    {task.status === "completed" ? t("common.completed") : t("common.pending")}
+          <View style={[styles.overviewGrid, isWide ? styles.overviewGridWide : null]}>
+            <View style={styles.panel}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>{t("dashboard.taskSummary")}</Text>
+                {overdueTasks.length > 0 ? (
+                  <Text style={styles.dangerPill}>
+                    {t("dashboard.overdueCount", { count: overdueTasks.length })}
                   </Text>
-                </View>
-              ))
-            )}
+                ) : null}
+              </View>
+              <View style={styles.summaryStatsRow}>
+                {renderSummaryStat({ label: t("dashboard.pendingToday"), value: pendingToday.length, accent: "blue" })}
+                {renderSummaryStat({
+                  label: t("dashboard.completedTodayTasks"),
+                  value: completedToday.length,
+                  accent: "blue"
+                })}
+                {renderSummaryStat({ label: t("dashboard.overdueTasks"), value: overdueTasks.length, accent: "danger" })}
+              </View>
+              <View style={styles.subsection}>
+                <Text style={styles.subsectionTitle}>{t("dashboard.nextUpcomingTask")}</Text>
+                {nextTask ? renderTaskItem(nextTask) : <Text style={styles.muted}>{t("dashboard.noUpcomingItems")}</Text>}
+              </View>
+              <View style={styles.subsection}>
+                <Text style={styles.subsectionTitle}>{t("dashboard.todayTaskList")}</Text>
+                {todayTasks.length === 0 ? (
+                  <Text style={styles.muted}>{t("dashboard.noTasksToday")}</Text>
+                ) : (
+                  todayTasks.slice(0, 4).map((task) => renderTaskItem(task, dashboard.date))
+                )}
+              </View>
+            </View>
+
+            <View style={styles.panel}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>{t("dashboard.habitSummary")}</Text>
+                <Text style={styles.zapPill}>{t("dashboard.streakLabel", { count: dashboard.current_streak })}</Text>
+              </View>
+              <View style={styles.summaryStatsRow}>
+                {renderSummaryStat({ label: t("dashboard.activeHabits"), value: activeHabits.length, accent: "yellow" })}
+                {renderSummaryStat({ label: t("dashboard.loggedToday"), value: loggedToday.length, accent: "yellow" })}
+                {renderSummaryStat({
+                  label: t("dashboard.notLoggedToday"),
+                  value: notLoggedToday.length,
+                  accent: "neutral"
+                })}
+              </View>
+              <View style={styles.subsection}>
+                <Text style={styles.subsectionTitle}>{t("dashboard.nextHabitToLog")}</Text>
+                {nextHabit ? renderHabitItem(nextHabit) : <Text style={styles.muted}>{t("dashboard.noUpcomingItems")}</Text>}
+              </View>
+              <View style={styles.subsection}>
+                <Text style={styles.subsectionTitle}>{t("dashboard.todayHabitList")}</Text>
+                {todayHabits.length === 0 ? (
+                  <Text style={styles.muted}>{t("dashboard.noHabitsToday")}</Text>
+                ) : (
+                  todayHabits.slice(0, 4).map(renderHabitItem)
+                )}
+              </View>
+              {archivedHabits.length > 0 ? (
+                <Text style={styles.muted}>{t("dashboard.archivedHabitsCount", { count: archivedHabits.length })}</Text>
+              ) : null}
+            </View>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t("dashboard.habitsSection")}</Text>
-            {data.habits.items.length === 0 ? (
-              <Text style={styles.muted}>{t("dashboard.noHabitsToday")}</Text>
-            ) : (
-              data.habits.items.map((habit) => (
-                <View key={habit.habit_id} style={styles.itemCard}>
-                  <Text style={styles.itemTitle}>{habit.title}</Text>
-                  <Text
-                    style={[
-                      styles.itemChip,
-                      habit.completed_today ? styles.yellowChip : styles.neutralChip
-                    ]}
-                  >
-                    {habit.completed_today ? t("dashboard.completedToday") : t("common.pending")}
+          <View style={styles.panel}>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={styles.sectionTitle}>{t("dashboard.weeklyProgress")}</Text>
+                <Text style={styles.muted}>
+                  {weeklyTotal > 0
+                    ? t("dashboard.weeklyProgressSummary", {
+                        completed: weeklyCompleted,
+                        total: weeklyTotal,
+                        percent: weeklyPercent
+                      })
+                    : t("dashboard.noWeeklyActivity")}
+                </Text>
+              </View>
+              <Text style={styles.percentPill}>{weeklyPercent}%</Text>
+            </View>
+            <View style={styles.weekRows}>
+              {data.week.map((item) => (
+                <View key={item.date} style={styles.weekRow}>
+                  <Text style={styles.weekLabel}>{item.label}</Text>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${item.percent}%` }]} />
+                  </View>
+                  <Text style={styles.weekValue}>
+                    {item.completed}/{item.total}
                   </Text>
                 </View>
-              ))
-            )}
+              ))}
+            </View>
           </View>
         </>
       ) : null}
@@ -173,20 +430,24 @@ function createStyles(
   spacing: ReturnType<typeof useAppTheme>["spacing"]
 ) {
   return StyleSheet.create({
-    title: {
-      fontSize: 30,
-      fontWeight: "700",
-      color: colors.textPrimary
-    },
     headerRow: {
       flexDirection: "row",
       alignItems: "center",
       gap: spacing.sm
     },
+    headerText: {
+      flex: 1,
+      gap: spacing.xs
+    },
+    title: {
+      fontSize: 30,
+      fontWeight: "700",
+      color: colors.textPrimary
+    },
     zapBadge: {
-      width: 30,
-      height: 30,
-      borderRadius: 15,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.zapYellowSoft,
@@ -200,11 +461,21 @@ function createStyles(
     },
     subtitle: {
       fontSize: 15,
-      color: colors.textSecondary,
-      marginBottom: spacing.xs
+      color: colors.textSecondary
     },
-    grid: {
+    refreshRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
       gap: spacing.md
+    },
+    dateText: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.textSecondary
+    },
+    refreshButton: {
+      minWidth: 140
     },
     metricGrid: {
       gap: spacing.md
@@ -221,101 +492,226 @@ function createStyles(
     },
     metricCard: {
       backgroundColor: colors.surface,
-      borderRadius: 22,
+      borderRadius: 8,
       padding: spacing.md,
       borderWidth: 1,
       borderColor: colors.border,
-      gap: spacing.xs,
-      shadowColor: colors.textPrimary,
-      shadowOpacity: 0.04,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 1
+      gap: spacing.xs
     },
     metricHeader: {
       flexDirection: "row",
       justifyContent: "space-between",
-      alignItems: "center"
+      alignItems: "center",
+      gap: spacing.md
     },
     metricAccent: {
-      backgroundColor: colors.zapYellowSoft,
+      backgroundColor: colors.primaryBlueUltraSoft,
       borderWidth: 1,
-      borderColor: colors.zapYellow,
+      borderColor: colors.primaryBlueSoft,
       borderRadius: 999,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 4
+      minWidth: 28,
+      height: 28,
+      alignItems: "center",
+      justifyContent: "center"
+    },
+    metricAccentYellow: {
+      backgroundColor: colors.zapYellowSoft,
+      borderColor: colors.zapYellow
+    },
+    metricAccentDanger: {
+      backgroundColor: colors.dangerSoft,
+      borderColor: colors.danger
     },
     metricAccentText: {
       color: colors.primaryBlueDark,
       fontWeight: "800"
     },
+    metricAccentTextDanger: {
+      color: colors.danger
+    },
     metricValue: {
       fontSize: 30,
-      fontWeight: "700",
+      fontWeight: "800",
       color: colors.primaryBlueDark
+    },
+    metricValueYellow: {
+      color: colors.primaryBlueDark
+    },
+    metricValueDanger: {
+      color: colors.danger
     },
     metricLabel: {
       fontSize: 14,
-      fontWeight: "600",
+      fontWeight: "700",
       color: colors.textPrimary
     },
     metricHelper: {
       fontSize: 13,
       color: colors.textSecondary
     },
-    section: {
-      gap: spacing.sm
+    overviewGrid: {
+      gap: spacing.md
+    },
+    overviewGridWide: {
+      flexDirection: "row",
+      alignItems: "flex-start"
+    },
+    panel: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.md
+    },
+    sectionHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: spacing.md
     },
     sectionTitle: {
       fontSize: 18,
       fontWeight: "700",
       color: colors.textPrimary
     },
-    itemCard: {
-      backgroundColor: colors.surface,
-      borderRadius: 16,
-      padding: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.border,
+    summaryStatsRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
       gap: spacing.sm
     },
-    itemTitle: {
-      fontSize: 15,
-      fontWeight: "600",
+    summaryStat: {
+      flex: 1,
+      minWidth: 100,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      padding: spacing.sm,
+      gap: 4
+    },
+    summaryValue: {
+      fontSize: 22,
+      fontWeight: "800",
       color: colors.textPrimary
     },
-    itemChip: {
-      alignSelf: "flex-start",
+    summaryValueBlue: {
+      color: colors.primaryBlueDark
+    },
+    summaryValueYellow: {
+      color: colors.primaryBlueDark
+    },
+    summaryValueDanger: {
+      color: colors.danger
+    },
+    summaryLabel: {
       fontSize: 12,
       fontWeight: "700",
+      color: colors.textSecondary
+    },
+    subsection: {
+      gap: spacing.sm
+    },
+    subsectionTitle: {
+      fontSize: 14,
+      fontWeight: "800",
+      color: colors.textPrimary
+    },
+    compactItem: {
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      padding: spacing.sm,
+      gap: 4
+    },
+    compactItemTitle: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.textPrimary
+    },
+    compactItemMeta: {
+      fontSize: 12,
+      color: colors.textSecondary
+    },
+    dangerPill: {
       borderRadius: 999,
+      overflow: "hidden",
+      backgroundColor: colors.dangerSoft,
+      color: colors.danger,
+      fontSize: 12,
+      fontWeight: "800",
       paddingHorizontal: spacing.sm,
-      paddingVertical: 6,
-      overflow: "hidden"
+      paddingVertical: 6
     },
-    blueChip: {
+    zapPill: {
+      borderRadius: 999,
+      overflow: "hidden",
+      backgroundColor: colors.zapYellowSoft,
       color: colors.primaryBlueDark,
-      backgroundColor: colors.primaryBlueUltraSoft
+      fontSize: 12,
+      fontWeight: "800",
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6
     },
-    yellowChip: {
+    percentPill: {
+      borderRadius: 999,
+      overflow: "hidden",
+      backgroundColor: colors.primaryBlueUltraSoft,
       color: colors.primaryBlueDark,
-      backgroundColor: colors.zapYellowSoft
+      fontSize: 13,
+      fontWeight: "800",
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6
     },
-    neutralChip: {
-      color: colors.textSecondary,
-      backgroundColor: colors.surfaceMuted
+    weekRows: {
+      gap: spacing.sm
     },
-    muted: {
+    weekRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm
+    },
+    weekLabel: {
+      width: 42,
+      fontSize: 12,
+      fontWeight: "800",
       color: colors.textSecondary,
-      fontSize: 14
+      textTransform: "capitalize"
+    },
+    progressTrack: {
+      flex: 1,
+      height: 10,
+      borderRadius: 999,
+      overflow: "hidden",
+      backgroundColor: colors.surfaceMuted,
+      borderWidth: 1,
+      borderColor: colors.border
+    },
+    progressFill: {
+      height: "100%",
+      borderRadius: 999,
+      backgroundColor: colors.primaryBlue
+    },
+    weekValue: {
+      width: 46,
+      textAlign: "right",
+      fontSize: 12,
+      fontWeight: "800",
+      color: colors.textSecondary
     },
     messageCard: {
       backgroundColor: colors.surface,
-      borderRadius: 16,
+      borderRadius: 8,
       padding: spacing.md,
       borderWidth: 1,
       borderColor: colors.border,
       gap: spacing.md
+    },
+    muted: {
+      color: colors.textSecondary,
+      fontSize: 14
     },
     errorText: {
       color: colors.danger,
