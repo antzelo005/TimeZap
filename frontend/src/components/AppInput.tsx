@@ -1,6 +1,6 @@
 import React from "react";
 import type { StyleProp, TextStyle, TextInputProps } from "react-native";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import { useAppTheme } from "../theme/useAppTheme";
 
 interface AppInputProps extends TextInputProps {
@@ -18,6 +18,7 @@ export default function AppInput({ label, error, style, ...props }: AppInputProp
       {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
         placeholderTextColor={colors.textMuted}
+        selectionColor={colors.primaryBlue}
         style={[styles.input, error ? styles.inputError : null, style]}
         {...props}
       />
@@ -37,16 +38,18 @@ function createStyles(
     label: {
       fontSize: 14,
       color: colors.textSecondary,
-      fontWeight: "600"
+      fontWeight: "700"
     },
     input: {
-      minHeight: 50,
+      minHeight: Platform.OS === "android" ? 56 : 52,
       borderWidth: 1,
       borderColor: colors.border,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.surfaceMuted,
       borderRadius: 16,
       paddingHorizontal: spacing.md,
-      fontSize: 15,
+      paddingVertical: Platform.OS === "android" ? 10 : 8,
+      fontSize: 16,
+      lineHeight: 22,
       color: colors.textPrimary
     },
     inputError: {

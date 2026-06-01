@@ -18,7 +18,7 @@ export default function ScreenContainer({
   if (!scroll) {
     return (
       <View style={styles.container}>
-        <View style={styles.content}>{children}</View>
+        <View style={styles.staticContent}>{children}</View>
       </View>
     );
   }
@@ -53,6 +53,12 @@ function createStyles(
       maxWidth: Platform.OS === "web" ? 1040 : undefined,
       alignSelf: "center",
       gap: spacing.md
+    },
+    staticContent: {
+      width: "100%",
+      maxWidth: Platform.OS === "web" ? 1040 : undefined,
+      alignSelf: "center",
+      flex: 1
     }
   });
 }

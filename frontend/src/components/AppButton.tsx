@@ -32,6 +32,7 @@ export default function AppButton({
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
+      hitSlop={8}
       style={({ pressed }) => [
         style,
         styles.button,
@@ -80,11 +81,12 @@ function createStyles(
 ) {
   return StyleSheet.create({
     button: {
-      minHeight: 46,
+      minHeight: 48,
       borderRadius: 14,
       alignItems: "center",
       justifyContent: "center",
       paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
       borderWidth: 1
     },
     primary: {

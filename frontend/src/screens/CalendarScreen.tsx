@@ -146,6 +146,15 @@ export default function CalendarScreen() {
     () => getMonthGrid(year, monthIndex, settings.week_starts_on),
     [year, monthIndex, settings.week_starts_on]
   );
+  const calendarWeeks = useMemo(() => {
+    const weeks: Array<Array<DayCellData | null>> = [];
+
+    for (let index = 0; index < dayCells.length; index += 7) {
+      weeks.push(dayCells.slice(index, index + 7));
+    }
+
+    return weeks;
+  }, [dayCells]);
 
   useEffect(() => {
     void loadMonth(year, monthNumber);
@@ -227,43 +236,52 @@ export default function CalendarScreen() {
           </View>
         ) : (
           <View style={styles.grid}>
-            {dayCells.map((cell, index) => {
-              if (!cell) {
-                return <View key={`empty-${index}`} style={[styles.dayCell, styles.dayCellEmpty]} />;
-              }
+            {calendarWeeks.map((week, weekIndex) => (
+              <View key={`week-${weekIndex}`} style={styles.weekRow}>
+                {week.map((cell, dayIndex) => {
+                  if (!cell) {
+                    return (
+                      <View
+                        key={`empty-${weekIndex}-${dayIndex}`}
+                        style={[styles.dayCell, styles.dayCellEmpty]}
+                      />
+                    );
+                  }
 
-              const monthEntry = getMonthEntry(cell.isoDate);
-              const hasTasks = Boolean(monthEntry && monthEntry.tasks.length > 0);
-              const hasHabits = Boolean(monthEntry && monthEntry.habit_logs_completed > 0);
-              const isSelected = cell.isoDate === selectedDate;
-              const isToday = cell.isoDate === todayIso;
+                  const monthEntry = getMonthEntry(cell.isoDate);
+                  const hasTasks = Boolean(monthEntry && monthEntry.tasks.length > 0);
+                  const hasHabits = Boolean(monthEntry && monthEntry.habit_logs_completed > 0);
+                  const isSelected = cell.isoDate === selectedDate;
+                  const isToday = cell.isoDate === todayIso;
 
-              return (
-                <Pressable
-                  key={cell.isoDate}
-                  onPress={() => setSelectedDate(cell.isoDate)}
-                  style={[
-                    styles.dayCell,
-                    isSelected ? styles.dayCellSelected : null,
-                    isToday ? styles.dayCellToday : null
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.dayNumber,
-                      isSelected ? styles.dayNumberSelected : null,
-                      isToday && !isSelected ? styles.dayNumberToday : null
-                    ]}
-                  >
-                    {cell.dayNumber}
-                  </Text>
-                  <View style={styles.indicatorRow}>
-                    {hasTasks ? <View style={[styles.indicatorDot, styles.taskDot]} /> : null}
-                    {hasHabits ? <View style={[styles.indicatorDot, styles.habitDot]} /> : null}
-                  </View>
-                </Pressable>
-              );
-            })}
+                  return (
+                    <Pressable
+                      key={cell.isoDate}
+                      onPress={() => setSelectedDate(cell.isoDate)}
+                      style={[
+                        styles.dayCell,
+                        isSelected ? styles.dayCellSelected : null,
+                        isToday ? styles.dayCellToday : null
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.dayNumber,
+                          isSelected ? styles.dayNumberSelected : null,
+                          isToday && !isSelected ? styles.dayNumberToday : null
+                        ]}
+                      >
+                        {cell.dayNumber}
+                      </Text>
+                      <View style={styles.indicatorRow}>
+                        {hasTasks ? <View style={[styles.indicatorDot, styles.taskDot]} /> : null}
+                        {hasHabits ? <View style={[styles.indicatorDot, styles.habitDot]} /> : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
           </View>
         )}
       </View>
@@ -407,13 +425,15 @@ function createStyles(
       textTransform: "capitalize"
     },
     grid: {
+      gap: spacing.xs
+    },
+    weekRow: {
       flexDirection: "row",
-      flexWrap: "wrap",
       gap: spacing.xs
     },
     dayCell: {
-      width: "13.3%",
-      minWidth: 42,
+      flex: 1,
+      minWidth: 0,
       aspectRatio: 1,
       borderRadius: 14,
       borderWidth: 1,
