@@ -1,16 +1,25 @@
 export interface HabitRuleDay {
-  rule_day_id: string;
+  rule_day_id?: string;
   day_of_week: number | null;
   day_of_month: number | null;
 }
 
+export type HabitRecurrenceType =
+  | "daily"
+  | "specific_weekdays"
+  | "every_n_days"
+  | "x_times_per_week"
+  | "x_times_per_month";
+
+export type HabitStatus = "active" | "archived";
+
 export interface HabitRule {
   rule_id: string;
-  recurrence_type: "daily" | "specific_weekdays" | "every_n_days" | "x_times_per_week" | "x_times_per_month";
+  recurrence_type: HabitRecurrenceType;
   interval_value: number;
   target_count: number;
   target_period: string | null;
-  week_start: string;
+  week_start: "monday" | "sunday";
   is_active: boolean;
   days: HabitRuleDay[];
 }
@@ -21,7 +30,7 @@ export interface Habit {
   title: string;
   description?: string | null;
   start_date: string;
-  status: "active" | "archived";
+  status: HabitStatus;
   emoji?: string | null;
   color?: string | null;
   created_at: string;
@@ -61,15 +70,25 @@ export interface HabitStreakResponse {
   current_streak: number;
 }
 
+export interface HabitDeleteResponse {
+  message: string;
+}
+
 export interface CreateHabitPayload {
   title: string;
+  description?: string | null;
   start_date: string;
+  status?: HabitStatus;
+  emoji?: string | null;
+  color?: string | null;
   rule: {
-    recurrence_type: "daily";
+    recurrence_type: HabitRecurrenceType;
     interval_value: number;
     target_count: number;
-    target_period: null;
-    week_start: "monday";
-    days: [];
+    target_period: string | null;
+    week_start: "monday" | "sunday";
+    days: HabitRuleDay[];
   };
 }
+
+export type UpdateHabitPayload = CreateHabitPayload;
