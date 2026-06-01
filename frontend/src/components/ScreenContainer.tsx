@@ -50,7 +50,7 @@ function createStyles(
     },
     content: {
       width: "100%",
-      maxWidth: Platform.OS === "web" ? 1040 : "100%",
+      maxWidth: Platform.OS === "web" ? 1040 : undefined,
       alignSelf: "center",
       gap: spacing.md
     }
