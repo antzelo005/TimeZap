@@ -6,6 +6,7 @@ import ScreenContainer from "../components/ScreenContainer";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { useTranslation } from "../i18n";
+import { cancelAllLocalReminders } from "../services/notifications";
 import { useAppTheme } from "../theme/useAppTheme";
 import type { AppSettings, DefaultView, LanguageCode, ThemeMode, WeekStartsOn } from "../types/settings";
 
@@ -83,6 +84,9 @@ export default function AccountScreen() {
     try {
       setSuccessMessage("");
       await updateSettings(draft);
+      if (!draft.notifications_enabled) {
+        await cancelAllLocalReminders();
+      }
       setSuccessMessage(t("account.settingsSaved"));
     } catch {
       setSuccessMessage("");

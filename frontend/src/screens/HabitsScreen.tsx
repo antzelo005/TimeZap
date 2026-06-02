@@ -16,7 +16,15 @@ import { useTranslation } from "../i18n";
 import { useAppTheme } from "../theme/useAppTheme";
 import { getErrorMessage } from "../types/api";
 import type { CreateHabitPayload, Habit, HabitRecurrenceType, HabitStatus } from "../types/habit";
+import type { LocalReminderRecord, ScheduleReminderResult } from "../types/notification";
 import { formatLocalDate } from "../utils/date";
+import { useSettings } from "../context/SettingsContext";
+import {
+  cancelLocalNotification,
+  checkNotificationAvailability,
+  getLocalRemindersByType,
+  scheduleHabitReminder
+} from "../services/notifications";
 
 type HabitFilter = "all" | "active" | "logged" | "not_logged" | "archived";
 
@@ -31,6 +39,8 @@ interface HabitFormState {
   target_count: string;
   week_start: "monday" | "sunday";
   selected_weekdays: number[];
+  reminder_enabled: boolean;
+  reminder_time: string;
 }
 
 type ConfirmableGlobal = typeof globalThis & {
@@ -50,7 +60,9 @@ function getDefaultForm(): HabitFormState {
     interval_value: "1",
     target_count: "1",
     week_start: "monday",
-    selected_weekdays: []
+    selected_weekdays: [],
+    reminder_enabled: false,
+    reminder_time: "09:00"
   };
 }
 
@@ -96,7 +108,9 @@ function habitToForm(habit: Habit): HabitFormState {
     selected_weekdays:
       rule?.days
         .map((day) => day.day_of_week)
-        .filter((day): day is number => typeof day === "number") ?? []
+        .filter((day): day is number => typeof day === "number") ?? [],
+    reminder_enabled: false,
+    reminder_time: "09:00"
   };
 }
 
@@ -142,14 +156,41 @@ function sortHabits(habits: Habit[]): Habit[] {
   });
 }
 
+function parseReminderTime(value: string): { hour: number; minute: number } | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    hour: Number(match[1]),
+    minute: Number(match[2])
+  };
+}
+
+function mergeReminderIntoForm(form: HabitFormState, reminder?: LocalReminderRecord): HabitFormState {
+  if (!reminder) {
+    return form;
+  }
+
+  return {
+    ...form,
+    reminder_enabled: true,
+    reminder_time: reminder.reminder_time
+  };
+}
+
 export default function HabitsScreen() {
   const { colors, spacing } = useAppTheme();
   const { t } = useTranslation();
+  const { settings } = useSettings();
   const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
   const today = useMemo(() => formatLocalDate(new Date()), []);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [streaks, setStreaks] = useState<Record<string, number>>({});
   const [loggedToday, setLoggedToday] = useState<Record<string, boolean>>({});
+  const [habitReminders, setHabitReminders] = useState<Record<string, LocalReminderRecord>>({});
   const [form, setForm] = useState<HabitFormState>(() => getDefaultForm());
   const [editingHabitId, setEditingHabitId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<HabitFilter>("active");
@@ -158,6 +199,7 @@ export default function HabitsScreen() {
   const [actionHabitId, setActionHabitId] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
   const [formError, setFormError] = useState<string>("");
+  const [reminderMessage, setReminderMessage] = useState<string>("");
 
   useEffect(() => {
     void loadHabits();
@@ -203,14 +245,20 @@ export default function HabitsScreen() {
     { key: "x_times_per_week", label: t("habits.recurrenceXTimesPerWeek") },
     { key: "x_times_per_month", label: t("habits.recurrenceXTimesPerMonth") }
   ];
+  const notificationAvailability = useMemo(() => checkNotificationAvailability(), []);
 
   async function loadHabits(): Promise<void> {
     try {
       setError("");
       setLoading(true);
-      const [habitResponse, todayResponse] = await Promise.all([getHabits(), getCalendarDay(today)]);
+      const [habitResponse, todayResponse, reminders] = await Promise.all([
+        getHabits(),
+        getCalendarDay(today),
+        getLocalRemindersByType("habit")
+      ]);
       const items = habitResponse.items || [];
       setHabits(items);
+      setHabitReminders(reminders);
       setLoggedToday(
         Object.fromEntries(todayResponse.habits.map((habit) => [habit.habit_id, habit.completed]))
       );
@@ -234,10 +282,90 @@ export default function HabitsScreen() {
     }
   }
 
-  function resetForm(): void {
+  function resetForm(clearReminderMessage: boolean = true): void {
     setForm(getDefaultForm());
     setEditingHabitId(null);
     setFormError("");
+    if (clearReminderMessage) {
+      setReminderMessage("");
+    }
+  }
+
+  function getReminderStatusMessage(result: ScheduleReminderResult): string {
+    if (result.ok) {
+      return t("notifications.reminderScheduled");
+    }
+
+    if (result.reason === "permission_denied") {
+      return t("notifications.permissionDenied");
+    }
+
+    if (result.reason === "unsupported") {
+      return t("notifications.reminderUnsupported");
+    }
+
+    return t("notifications.invalidDateTime");
+  }
+
+  async function refreshHabitReminders(): Promise<void> {
+    const reminders = await getLocalRemindersByType("habit");
+    setHabitReminders(reminders);
+  }
+
+  async function syncHabitReminder(habit: Habit): Promise<void> {
+    if (!form.reminder_enabled) {
+      await cancelLocalNotification("habit", habit.habit_id);
+      setReminderMessage("");
+      await refreshHabitReminders();
+      return;
+    }
+
+    if (!settings.notifications_enabled) {
+      await cancelLocalNotification("habit", habit.habit_id);
+      setReminderMessage(t("notifications.disabledInSettings"));
+      await refreshHabitReminders();
+      return;
+    }
+
+    if (!notificationAvailability.available) {
+      await cancelLocalNotification("habit", habit.habit_id);
+      setReminderMessage(t("notifications.webUnsupported"));
+      await refreshHabitReminders();
+      return;
+    }
+
+    if (habit.status !== "active") {
+      await cancelLocalNotification("habit", habit.habit_id);
+      setReminderMessage(t("notifications.onlyActiveHabits"));
+      await refreshHabitReminders();
+      return;
+    }
+
+    if (form.recurrence_type !== "daily") {
+      await cancelLocalNotification("habit", habit.habit_id);
+      setReminderMessage(t("notifications.dailyHabitsOnly"));
+      await refreshHabitReminders();
+      return;
+    }
+
+    const parsedTime = parseReminderTime(form.reminder_time);
+
+    if (!parsedTime) {
+      setReminderMessage(t("notifications.invalidDateTime"));
+      return;
+    }
+
+    const result = await scheduleHabitReminder({
+      habitId: habit.habit_id,
+      title: t("notifications.habitNotificationTitle"),
+      body: t("notifications.habitNotificationBody", { title: habit.title }),
+      reminderTime: form.reminder_time,
+      hour: parsedTime.hour,
+      minute: parsedTime.minute
+    });
+
+    setReminderMessage(getReminderStatusMessage(result));
+    await refreshHabitReminders();
   }
 
   async function confirmAction(title: string, message: string, confirmLabel: string): Promise<boolean> {
@@ -274,13 +402,13 @@ export default function HabitsScreen() {
         : "active";
       const payload = formToPayload({ ...form, title, start_date: startDate }, status);
 
-      if (editingHabitId) {
-        await updateHabit(editingHabitId, payload);
-      } else {
-        await createHabit(payload);
-      }
+      const response = editingHabitId
+        ? await updateHabit(editingHabitId, payload)
+        : await createHabit(payload);
 
-      resetForm();
+      await syncHabitReminder(response.habit);
+
+      resetForm(false);
       await loadHabits();
     } catch (err: unknown) {
       Alert.alert(t("habits.errorTitle"), getErrorMessage(err));
@@ -291,8 +419,9 @@ export default function HabitsScreen() {
 
   function handleEditHabit(habit: Habit): void {
     setEditingHabitId(habit.habit_id);
-    setForm(habitToForm(habit));
+    setForm(mergeReminderIntoForm(habitToForm(habit), habitReminders[habit.habit_id]));
     setFormError("");
+    setReminderMessage("");
   }
 
   async function runHabitAction(habitId: string, action: () => Promise<unknown>): Promise<void> {
@@ -328,7 +457,11 @@ export default function HabitsScreen() {
     }
 
     const payload = formToPayload(habitToForm(habit), "archived");
-    await runHabitAction(habit.habit_id, () => updateHabit(habit.habit_id, payload));
+    await runHabitAction(habit.habit_id, async () => {
+      await updateHabit(habit.habit_id, payload);
+      await cancelLocalNotification("habit", habit.habit_id);
+      await refreshHabitReminders();
+    });
   }
 
   async function handleRestoreHabit(habit: Habit): Promise<void> {
@@ -351,7 +484,20 @@ export default function HabitsScreen() {
       resetForm();
     }
 
-    await runHabitAction(habit.habit_id, () => deleteHabit(habit.habit_id));
+    await runHabitAction(habit.habit_id, async () => {
+      await deleteHabit(habit.habit_id);
+      await cancelLocalNotification("habit", habit.habit_id);
+      await refreshHabitReminders();
+    });
+  }
+
+  function toggleHabitReminder(): void {
+    setReminderMessage("");
+    setForm((current) => ({
+      ...current,
+      reminder_enabled: !current.reminder_enabled,
+      reminder_time: current.reminder_time || "09:00"
+    }));
   }
 
   function toggleWeekday(day: number): void {
@@ -442,6 +588,13 @@ export default function HabitsScreen() {
               </Text>
             </View>
             {habit.description ? <Text style={styles.itemDescription}>{habit.description}</Text> : null}
+            {habitReminders[habit.habit_id] ? (
+              <Text style={styles.reminderMeta}>
+                {t("notifications.dailyReminderSetFor", {
+                  time: habitReminders[habit.habit_id].reminder_time
+                })}
+              </Text>
+            ) : null}
             <Text style={styles.itemMeta}>
               {getRecurrenceLabel(habit)} • {t("habits.startDate")}: {habit.start_date}
             </Text>
@@ -558,7 +711,7 @@ export default function HabitsScreen() {
             {editingHabitId ? t("habits.editHabitTitle") : t("habits.newHabit")}
           </Text>
           {editingHabitId ? (
-            <Pressable onPress={resetForm} style={styles.clearEditButton}>
+            <Pressable onPress={() => resetForm()} style={styles.clearEditButton}>
               <Text style={styles.clearEditButtonText}>{t("common.cancel")}</Text>
             </Pressable>
           ) : null}
@@ -683,6 +836,37 @@ export default function HabitsScreen() {
             placeholder="3"
           />
         ) : null}
+
+        <View style={styles.reminderBox}>
+          <Pressable onPress={toggleHabitReminder} style={styles.toggleRow}>
+            <View style={[styles.checkbox, form.reminder_enabled ? styles.checkboxActive : null]}>
+              {form.reminder_enabled ? <Text style={styles.checkboxMark}>{"\u2713"}</Text> : null}
+            </View>
+            <Text style={styles.toggleLabel}>{t("notifications.enableDailyReminder")}</Text>
+          </Pressable>
+
+          {form.reminder_enabled ? (
+            <>
+              <AppInput
+                label={t("notifications.reminderTime")}
+                value={form.reminder_time}
+                onChangeText={(value) => setForm((current) => ({ ...current, reminder_time: value }))}
+                placeholder="09:00"
+              />
+              <Text style={styles.reminderHint}>
+                {settings.notifications_enabled
+                  ? notificationAvailability.available
+                    ? form.recurrence_type === "daily"
+                      ? t("notifications.habitReminderHint")
+                      : t("notifications.dailyHabitsOnly")
+                    : t("notifications.webUnsupported")
+                  : t("notifications.disabledInSettings")}
+              </Text>
+            </>
+          ) : null}
+
+          {reminderMessage ? <Text style={styles.reminderStatus}>{reminderMessage}</Text> : null}
+        </View>
 
         <AppButton
           title={editingHabitId ? t("habits.saveChanges") : t("habits.addHabit")}
@@ -831,6 +1015,54 @@ function createStyles(
       color: colors.textSecondary,
       lineHeight: 19
     },
+    toggleRow: {
+      alignSelf: "flex-start",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm
+    },
+    checkbox: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center"
+    },
+    checkboxActive: {
+      backgroundColor: colors.primaryBlue,
+      borderColor: colors.primaryBlue
+    },
+    checkboxMark: {
+      color: colors.textOnPrimary,
+      fontSize: 13,
+      fontWeight: "800"
+    },
+    toggleLabel: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: "600"
+    },
+    reminderBox: {
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      padding: spacing.md,
+      gap: spacing.md
+    },
+    reminderHint: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      lineHeight: 19
+    },
+    reminderStatus: {
+      color: colors.primaryBlueDark,
+      fontSize: 13,
+      fontWeight: "700"
+    },
     optionRow: {
       flexDirection: "row",
       flexWrap: "wrap",
@@ -971,6 +1203,11 @@ function createStyles(
     itemMeta: {
       fontSize: 13,
       color: colors.textSecondary
+    },
+    reminderMeta: {
+      fontSize: 13,
+      color: colors.primaryBlueDark,
+      fontWeight: "700"
     },
     cardChips: {
       alignItems: "flex-end",

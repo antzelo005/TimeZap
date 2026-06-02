@@ -15,6 +15,14 @@ import type { CreateTaskPayload, Task } from "../types/task";
 import { getErrorMessage } from "../types/api";
 import { useAppTheme } from "../theme/useAppTheme";
 import { useTranslation } from "../i18n";
+import { useSettings } from "../context/SettingsContext";
+import {
+  cancelLocalNotification,
+  checkNotificationAvailability,
+  getLocalRemindersByType,
+  scheduleTaskReminder
+} from "../services/notifications";
+import type { LocalReminderRecord, ScheduleReminderResult } from "../types/notification";
 
 type TaskFilter = "all" | "pending" | "completed" | "overdue";
 type TaskStatus = Task["status"];
@@ -27,6 +35,9 @@ interface TaskFormState {
   is_all_day: boolean;
   emoji: string;
   color: string;
+  reminder_enabled: boolean;
+  reminder_date: string;
+  reminder_time: string;
 }
 
 interface TaskSection {
@@ -48,7 +59,10 @@ function getEmptyForm(): TaskFormState {
     due_time: "",
     is_all_day: false,
     emoji: "",
-    color: ""
+    color: "",
+    reminder_enabled: false,
+    reminder_date: "",
+    reminder_time: "09:00"
   };
 }
 
@@ -68,7 +82,10 @@ function taskToForm(task: Task): TaskFormState {
     due_time: normalizeTimeForInput(task.due_time),
     is_all_day: task.is_all_day,
     emoji: task.emoji ?? "",
-    color: task.color ?? ""
+    color: task.color ?? "",
+    reminder_enabled: false,
+    reminder_date: "",
+    reminder_time: "09:00"
   };
 }
 
@@ -86,6 +103,60 @@ function formToPayload(form: TaskFormState): CreateTaskPayload {
     is_all_day: form.is_all_day,
     emoji: cleanOptional(form.emoji),
     color: cleanOptional(form.color)
+  };
+}
+
+function isValidDateInput(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(year, month - 1, day);
+  return (
+    parsed.getFullYear() === year &&
+    parsed.getMonth() === month - 1 &&
+    parsed.getDate() === day
+  );
+}
+
+function parseReminderTime(value: string): { hour: number; minute: number } | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    hour: Number(match[1]),
+    minute: Number(match[2])
+  };
+}
+
+function buildReminderDateTime(dateValue: string, timeValue: string): Date | null {
+  if (!isValidDateInput(dateValue)) {
+    return null;
+  }
+
+  const time = parseReminderTime(timeValue);
+  if (!time) {
+    return null;
+  }
+
+  const [year, month, day] = dateValue.split("-").map(Number);
+  return new Date(year, month - 1, day, time.hour, time.minute, 0, 0);
+}
+
+function mergeReminderIntoForm(form: TaskFormState, reminder?: LocalReminderRecord): TaskFormState {
+  if (!reminder) {
+    return form;
+  }
+
+  return {
+    ...form,
+    reminder_enabled: true,
+    reminder_date: reminder.reminder_date ?? "",
+    reminder_time: reminder.reminder_time
   };
 }
 
@@ -127,8 +198,10 @@ function sortTasks(tasks: Task[]): Task[] {
 export default function TasksScreen() {
   const { colors, spacing } = useAppTheme();
   const { t } = useTranslation();
+  const { settings } = useSettings();
   const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [taskReminders, setTaskReminders] = useState<Record<string, LocalReminderRecord>>({});
   const [form, setForm] = useState<TaskFormState>(() => getEmptyForm());
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<TaskFilter>("all");
@@ -137,6 +210,7 @@ export default function TasksScreen() {
   const [actionTaskId, setActionTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
   const [formError, setFormError] = useState<string>("");
+  const [reminderMessage, setReminderMessage] = useState<string>("");
 
   useEffect(() => {
     void loadTasks();
@@ -220,13 +294,18 @@ export default function TasksScreen() {
     }),
     [tasks]
   );
+  const notificationAvailability = useMemo(() => checkNotificationAvailability(), []);
 
   async function loadTasks(): Promise<void> {
     try {
       setError("");
       setLoading(true);
-      const response = await getTasks();
+      const [response, reminders] = await Promise.all([
+        getTasks(),
+        getLocalRemindersByType("task")
+      ]);
       setTasks(response.items || []);
+      setTaskReminders(reminders);
     } catch (err: unknown) {
       setError(getErrorMessage(err));
     } finally {
@@ -234,10 +313,89 @@ export default function TasksScreen() {
     }
   }
 
-  function resetForm(): void {
+  function resetForm(clearReminderMessage: boolean = true): void {
     setForm(getEmptyForm());
     setEditingTaskId(null);
     setFormError("");
+    if (clearReminderMessage) {
+      setReminderMessage("");
+    }
+  }
+
+  function getReminderStatusMessage(result: ScheduleReminderResult): string {
+    if (result.ok) {
+      return t("notifications.reminderScheduled");
+    }
+
+    if (result.reason === "permission_denied") {
+      return t("notifications.permissionDenied");
+    }
+
+    if (result.reason === "unsupported") {
+      return t("notifications.reminderUnsupported");
+    }
+
+    if (result.reason === "past_date") {
+      return t("notifications.pastDate");
+    }
+
+    return t("notifications.invalidDateTime");
+  }
+
+  async function refreshTaskReminders(): Promise<void> {
+    const reminders = await getLocalRemindersByType("task");
+    setTaskReminders(reminders);
+  }
+
+  async function syncTaskReminder(task: Task, payload: CreateTaskPayload): Promise<void> {
+    if (!form.reminder_enabled) {
+      await cancelLocalNotification("task", task.task_id);
+      setReminderMessage("");
+      await refreshTaskReminders();
+      return;
+    }
+
+    if (!settings.notifications_enabled) {
+      await cancelLocalNotification("task", task.task_id);
+      setReminderMessage(t("notifications.disabledInSettings"));
+      await refreshTaskReminders();
+      return;
+    }
+
+    if (!notificationAvailability.available) {
+      await cancelLocalNotification("task", task.task_id);
+      setReminderMessage(t("notifications.webUnsupported"));
+      await refreshTaskReminders();
+      return;
+    }
+
+    if (task.status !== "pending") {
+      await cancelLocalNotification("task", task.task_id);
+      setReminderMessage(t("notifications.onlyPendingTasks"));
+      await refreshTaskReminders();
+      return;
+    }
+
+    const reminderDate = form.reminder_date.trim() || payload.due_date || "";
+    const reminderTime = form.reminder_time.trim() || payload.due_time || "09:00";
+    const scheduledFor = buildReminderDateTime(reminderDate, reminderTime);
+
+    if (!scheduledFor) {
+      setReminderMessage(t("notifications.invalidDateTime"));
+      return;
+    }
+
+    const result = await scheduleTaskReminder({
+      taskId: task.task_id,
+      title: t("notifications.taskNotificationTitle"),
+      body: t("notifications.taskNotificationBody", { title: task.title }),
+      scheduledFor,
+      reminderDate,
+      reminderTime
+    });
+
+    setReminderMessage(getReminderStatusMessage(result));
+    await refreshTaskReminders();
   }
 
   async function confirmAction(title: string, message: string, confirmLabel: string): Promise<boolean> {
@@ -269,13 +427,13 @@ export default function TasksScreen() {
       setError("");
       setFormError("");
 
-      if (editingTaskId) {
-        await updateTask(editingTaskId, payload);
-      } else {
-        await createTask(payload);
-      }
+      const response = editingTaskId
+        ? await updateTask(editingTaskId, payload)
+        : await createTask(payload);
 
-      resetForm();
+      await syncTaskReminder(response.task, payload);
+
+      resetForm(false);
       await loadTasks();
     } catch (err: unknown) {
       Alert.alert(t("tasks.errorTitle"), getErrorMessage(err));
@@ -286,8 +444,27 @@ export default function TasksScreen() {
 
   function handleEditTask(task: Task): void {
     setEditingTaskId(task.task_id);
-    setForm(taskToForm(task));
+    setForm(mergeReminderIntoForm(taskToForm(task), taskReminders[task.task_id]));
     setFormError("");
+    setReminderMessage("");
+  }
+
+  function toggleTaskReminder(): void {
+    setReminderMessage("");
+    setForm((current) => {
+      const enabling = !current.reminder_enabled;
+
+      return {
+        ...current,
+        reminder_enabled: enabling,
+        reminder_date: enabling
+          ? current.reminder_date || current.due_date || ""
+          : current.reminder_date,
+        reminder_time: enabling
+          ? current.reminder_time || normalizeTimeForInput(current.due_time) || "09:00"
+          : current.reminder_time
+      };
+    });
   }
 
   async function runTaskAction(taskId: string, action: () => Promise<unknown>): Promise<void> {
@@ -304,11 +481,33 @@ export default function TasksScreen() {
   }
 
   async function handleCompleteTask(taskId: string): Promise<void> {
-    await runTaskAction(taskId, () => completeTask(taskId));
+    await runTaskAction(taskId, async () => {
+      try {
+        await completeTask(taskId);
+      } catch (err: unknown) {
+        const message = getErrorMessage(err);
+        if (!message.toLowerCase().includes("unexpected token")) {
+          throw err;
+        }
+      }
+      await cancelLocalNotification("task", taskId);
+      await refreshTaskReminders();
+    });
   }
 
   async function handleCancelTask(taskId: string): Promise<void> {
-    await runTaskAction(taskId, () => cancelTask(taskId));
+    await runTaskAction(taskId, async () => {
+      try {
+        await cancelTask(taskId);
+      } catch (err: unknown) {
+        const message = getErrorMessage(err);
+        if (!message.toLowerCase().includes("unexpected token")) {
+          throw err;
+        }
+      }
+      await cancelLocalNotification("task", taskId);
+      await refreshTaskReminders();
+    });
   }
 
   async function handleDeleteTask(task: Task): Promise<void> {
@@ -326,7 +525,11 @@ export default function TasksScreen() {
       resetForm();
     }
 
-    await runTaskAction(task.task_id, () => deleteTask(task.task_id));
+    await runTaskAction(task.task_id, async () => {
+      await deleteTask(task.task_id);
+      await cancelLocalNotification("task", task.task_id);
+      await refreshTaskReminders();
+    });
   }
 
   function getDueLabel(task: Task): string {
@@ -382,6 +585,13 @@ export default function TasksScreen() {
             </View>
             {task.description ? <Text style={styles.itemDescription}>{task.description}</Text> : null}
             <Text style={styles.itemMeta}>{getDueLabel(task)}</Text>
+            {taskReminders[task.task_id] ? (
+              <Text style={styles.reminderMeta}>
+                {t("notifications.reminderSetFor", {
+                  value: `${taskReminders[task.task_id].reminder_date ?? ""} ${taskReminders[task.task_id].reminder_time}`.trim()
+                })}
+              </Text>
+            ) : null}
           </View>
           <Text
             style={[
@@ -482,7 +692,7 @@ export default function TasksScreen() {
             {editingTaskId ? t("tasks.editTaskTitle") : t("tasks.newTask")}
           </Text>
           {editingTaskId ? (
-            <Pressable onPress={resetForm} style={styles.clearEditButton}>
+            <Pressable onPress={() => resetForm()} style={styles.clearEditButton}>
               <Text style={styles.clearEditButtonText}>{t("common.cancel")}</Text>
             </Pressable>
           ) : null}
@@ -538,6 +748,51 @@ export default function TasksScreen() {
           </View>
           <Text style={styles.toggleLabel}>{t("tasks.allDay")}</Text>
         </Pressable>
+
+        <View style={styles.reminderBox}>
+          <Pressable onPress={toggleTaskReminder} style={styles.toggleRow}>
+            <View style={[styles.checkbox, form.reminder_enabled ? styles.checkboxActive : null]}>
+              {form.reminder_enabled ? <Text style={styles.checkboxMark}>{"\u2713"}</Text> : null}
+            </View>
+            <Text style={styles.toggleLabel}>{t("notifications.enableReminder")}</Text>
+          </Pressable>
+
+          {form.reminder_enabled ? (
+            <>
+              <View style={styles.formRow}>
+                <View style={styles.formColumn}>
+                  <AppInput
+                    label={t("notifications.reminderDate")}
+                    value={form.reminder_date}
+                    onChangeText={(value) =>
+                      setForm((current) => ({ ...current, reminder_date: value }))
+                    }
+                    placeholder="2026-06-01"
+                  />
+                </View>
+                <View style={styles.formColumn}>
+                  <AppInput
+                    label={t("notifications.reminderTime")}
+                    value={form.reminder_time}
+                    onChangeText={(value) =>
+                      setForm((current) => ({ ...current, reminder_time: value }))
+                    }
+                    placeholder="09:00"
+                  />
+                </View>
+              </View>
+              <Text style={styles.reminderHint}>
+                {settings.notifications_enabled
+                  ? notificationAvailability.available
+                    ? t("notifications.taskReminderHint")
+                    : t("notifications.webUnsupported")
+                  : t("notifications.disabledInSettings")}
+              </Text>
+            </>
+          ) : null}
+
+          {reminderMessage ? <Text style={styles.reminderStatus}>{reminderMessage}</Text> : null}
+        </View>
 
         <View style={styles.formRow}>
           <View style={styles.formColumn}>
@@ -729,6 +984,24 @@ function createStyles(
       fontSize: 14,
       fontWeight: "600"
     },
+    reminderBox: {
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      padding: spacing.md,
+      gap: spacing.md
+    },
+    reminderHint: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      lineHeight: 19
+    },
+    reminderStatus: {
+      color: colors.primaryBlueDark,
+      fontSize: 13,
+      fontWeight: "700"
+    },
     filterRow: {
       flexDirection: "row",
       flexWrap: "wrap",
@@ -832,6 +1105,11 @@ function createStyles(
     itemMeta: {
       fontSize: 13,
       color: colors.textSecondary
+    },
+    reminderMeta: {
+      fontSize: 13,
+      color: colors.primaryBlueDark,
+      fontWeight: "700"
     },
     statusChip: {
       alignSelf: "flex-start",

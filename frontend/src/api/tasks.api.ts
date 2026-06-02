@@ -43,11 +43,11 @@ export function updateTask(taskId: string, payload: UpdateTaskPayload): Promise<
 }
 
 export function completeTask(taskId: string): Promise<TaskResponse> {
-  return apiClient.patch<TaskResponse>(`/tasks/${taskId}/complete`);
+  return apiClient.patch<TaskResponse>(`/tasks/${taskId}/complete`, {});
 }
 
 export function cancelTask(taskId: string): Promise<TaskResponse> {
-  return apiClient.patch<TaskResponse>(`/tasks/${taskId}/cancel`);
+  return apiClient.patch<TaskResponse>(`/tasks/${taskId}/cancel`, {});
 }
 
 export function deleteTask(taskId: string): Promise<TaskDeleteResponse> {
