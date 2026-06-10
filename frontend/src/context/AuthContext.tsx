@@ -2,11 +2,21 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { clearToken, getToken, setToken } from "../storage/tokenStorage";
 import {
+  changePassword as changePasswordRequest,
   getCurrentUser,
   login as loginRequest,
-  register as registerRequest
+  register as registerRequest,
+  updateProfile as updateProfileRequest
 } from "../api/auth.api";
-import type { AuthCredentials, AuthResponse, User } from "../types/auth";
+import type {
+  AuthCredentials,
+  AuthResponse,
+  PasswordChangePayload,
+  PasswordChangeResponse,
+  ProfileUpdatePayload,
+  ProfileUpdateResponse,
+  User
+} from "../types/auth";
 
 const TOKEN_READ_TIMEOUT_MS = 4000;
 const CURRENT_USER_TIMEOUT_MS = 8000;
@@ -20,6 +30,8 @@ interface AuthContextValue {
   isAuthLoading: boolean;
   login: (credentials: AuthCredentials) => Promise<AuthResponse>;
   register: (payload: AuthCredentials) => Promise<AuthResponse>;
+  updateProfile: (payload: ProfileUpdatePayload) => Promise<ProfileUpdateResponse>;
+  changePassword: (payload: PasswordChangePayload) => Promise<PasswordChangeResponse>;
   logout: () => Promise<void>;
 }
 
@@ -107,6 +119,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }
 
+  async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileUpdateResponse> {
+    setIsAuthLoading(true);
+    try {
+      const response = await updateProfileRequest(payload);
+      await setToken(response.token);
+      setTokenState(response.token);
+      setUser(response.user);
+      return response;
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
+  async function changePassword(payload: PasswordChangePayload): Promise<PasswordChangeResponse> {
+    setIsAuthLoading(true);
+    try {
+      return await changePasswordRequest(payload);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
   async function logout(): Promise<void> {
     await clearToken();
     setTokenState(null);
@@ -119,9 +153,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated: Boolean(token && user),
     isBootstrapping,
     isAuthLoading,
+    changePassword,
     login,
     logout,
-    register
+    register,
+    updateProfile
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { API_BASE_URL } from "../api/client";
 import AppButton from "../components/AppButton";
+import AppInput from "../components/AppInput";
 import ScreenContainer from "../components/ScreenContainer";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { useTranslation } from "../i18n";
 import { cancelAllLocalReminders } from "../services/notifications";
 import { useAppTheme } from "../theme/useAppTheme";
-import type { AppSettings, DefaultView, LanguageCode, ThemeMode, WeekStartsOn } from "../types/settings";
+import { getErrorMessage } from "../types/api";
+import type { AppSettings, DefaultView, LanguageCode, ThemeMode, TimeFormat, WeekStartsOn } from "../types/settings";
 
 type SelectOption<T extends string> = {
   label: string;
@@ -62,34 +64,86 @@ function SelectGroup<T extends string>({
 }
 
 export default function AccountScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateProfile, changePassword, isAuthLoading } = useAuth();
   const { settings, isLoading, isSaving, error, updateSettings, resetError } = useSettings();
   const { colors, spacing } = useAppTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
   const [draft, setDraft] = useState<AppSettings>(settings);
-  const [successMessage, setSuccessMessage] = useState<string>("");
+  const [profileName, setProfileName] = useState<string>(user?.display_name ?? "");
+  const [profileEmail, setProfileEmail] = useState<string>(user?.email ?? "");
+  const [currentPassword, setCurrentPassword] = useState<string>("");
+  const [newPassword, setNewPassword] = useState<string>("");
+  const [confirmPassword, setConfirmPassword] = useState<string>("");
+  const [settingsMessage, setSettingsMessage] = useState<string>("");
+  const [profileMessage, setProfileMessage] = useState<string>("");
+  const [profileError, setProfileError] = useState<string>("");
+  const [passwordMessage, setPasswordMessage] = useState<string>("");
+  const [passwordError, setPasswordError] = useState<string>("");
 
   useEffect(() => {
     setDraft(settings);
   }, [settings]);
 
+  useEffect(() => {
+    setProfileEmail(user?.email ?? "");
+    setProfileName(user?.display_name ?? "");
+  }, [user?.display_name, user?.email]);
+
   function setField<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
     resetError();
-    setSuccessMessage("");
+    setSettingsMessage("");
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
-  async function handleSave(): Promise<void> {
+  async function handleSaveSettings(): Promise<void> {
     try {
-      setSuccessMessage("");
+      setSettingsMessage("");
       await updateSettings(draft);
       if (!draft.notifications_enabled) {
         await cancelAllLocalReminders();
       }
-      setSuccessMessage(t("account.settingsSaved"));
+      setSettingsMessage(t("account.settingsSaved"));
     } catch {
-      setSuccessMessage("");
+      setSettingsMessage("");
+    }
+  }
+
+  async function handleSaveProfile(): Promise<void> {
+    try {
+      setProfileError("");
+      setProfileMessage("");
+      await updateProfile({ email: profileEmail, display_name: profileName });
+      setProfileMessage(t("account.profileSaved"));
+    } catch (err: unknown) {
+      setProfileError(getErrorMessage(err));
+    }
+  }
+
+  async function handleChangePassword(): Promise<void> {
+    if (!currentPassword || !newPassword) {
+      setPasswordError(t("account.passwordRequired"));
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError(t("account.passwordMismatch"));
+      return;
+    }
+
+    try {
+      setPasswordError("");
+      setPasswordMessage("");
+      await changePassword({
+        current_password: currentPassword,
+        new_password: newPassword
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordMessage(t("account.passwordSaved"));
+    } catch (err: unknown) {
+      setPasswordError(getErrorMessage(err));
     }
   }
 
@@ -118,6 +172,11 @@ export default function AccountScreen() {
     { value: "sunday", label: t("account.weekStartsOn.sunday") }
   ];
 
+  const timeFormatOptions: SelectOption<TimeFormat>[] = [
+    { value: "12h", label: t("account.timeFormat.12h") },
+    { value: "24h", label: t("account.timeFormat.24h") }
+  ];
+
   return (
     <ScreenContainer>
       <View style={styles.headerRow}>
@@ -127,106 +186,175 @@ export default function AccountScreen() {
         </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>{t("account.accountDetails")}</Text>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>{t("account.signedInAs")}</Text>
-            <Text style={styles.value}>{user?.email || t("account.unknownUser")}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>{t("account.timezone")}</Text>
-            <Text style={styles.value}>{draft.timezone}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>{t("account.apiBaseUrl")}</Text>
-            <Text style={styles.meta}>{API_BASE_URL}</Text>
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>{t("account.profileTitle")}</Text>
+        <AppInput
+          label={t("account.name")}
+          value={profileName}
+          onChangeText={(value) => {
+            setProfileError("");
+            setProfileMessage("");
+            setProfileName(value);
+          }}
+          placeholder={t("account.nameNotSet")}
+        />
+        <AppInput
+          label={t("account.email")}
+          value={profileEmail}
+          onChangeText={(value) => {
+            setProfileError("");
+            setProfileMessage("");
+            setProfileEmail(value);
+          }}
+          autoCapitalize="none"
+          keyboardType="email-address"
+        />
+        <View style={styles.infoRow}>
+          <Text style={styles.label}>{t("account.apiBaseUrl")}</Text>
+          <Text style={styles.meta}>{API_BASE_URL}</Text>
+        </View>
+        {profileError ? <Text style={styles.errorText}>{profileError}</Text> : null}
+        {profileMessage ? <Text style={styles.successText}>{profileMessage}</Text> : null}
+        <AppButton
+          title={isAuthLoading ? t("common.saving") : t("account.saveProfile")}
+          onPress={() => void handleSaveProfile()}
+          loading={isAuthLoading}
+        />
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>{t("account.securityTitle")}</Text>
+        <AppInput
+          label={t("account.currentPassword")}
+          value={currentPassword}
+          onChangeText={(value) => {
+            setPasswordError("");
+            setPasswordMessage("");
+            setCurrentPassword(value);
+          }}
+          secureTextEntry
+        />
+        <AppInput
+          label={t("account.newPassword")}
+          value={newPassword}
+          onChangeText={(value) => {
+            setPasswordError("");
+            setPasswordMessage("");
+            setNewPassword(value);
+          }}
+          secureTextEntry
+        />
+        <AppInput
+          label={t("account.confirmNewPassword")}
+          value={confirmPassword}
+          onChangeText={(value) => {
+            setPasswordError("");
+            setPasswordMessage("");
+            setConfirmPassword(value);
+          }}
+          secureTextEntry
+        />
+        {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
+        {passwordMessage ? <Text style={styles.successText}>{passwordMessage}</Text> : null}
+        <AppButton
+          title={isAuthLoading ? t("common.saving") : t("account.changePassword")}
+          onPress={() => void handleChangePassword()}
+          loading={isAuthLoading}
+          variant="secondary"
+        />
+      </View>
+
+      <View style={styles.card}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>{t("account.settingsTitle")}</Text>
+          <View style={styles.statusPill}>
+            <Text style={styles.statusPillText}>{isSaving ? t("common.saving") : t("account.synced")}</Text>
           </View>
         </View>
 
-        <View style={styles.card}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t("account.settingsTitle")}</Text>
-            <View style={styles.statusPill}>
-              <Text style={styles.statusPillText}>
-                {isSaving ? t("common.saving") : t("account.synced")}
-              </Text>
-            </View>
-          </View>
+        {isLoading ? <Text style={styles.hint}>{t("common.loading")}</Text> : null}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {settingsMessage ? <Text style={styles.successText}>{settingsMessage}</Text> : null}
 
-          {isLoading ? <Text style={styles.hint}>{t("common.loading")}</Text> : null}
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          {successMessage ? <Text style={styles.successText}>{successMessage}</Text> : null}
+        <SelectGroup<ThemeMode>
+          title={t("account.theme")}
+          description={t("account.themeDescription")}
+          value={draft.theme}
+          options={themeOptions}
+          onChange={(value) => setField("theme", value)}
+          colors={colors}
+          spacing={spacing}
+        />
 
-          <SelectGroup<ThemeMode>
-            title={t("account.theme")}
-            description={t("account.themeDescription")}
-            value={draft.theme}
-            options={themeOptions}
-            onChange={(value) => setField("theme", value)}
-            colors={colors}
-            spacing={spacing}
-          />
+        <SelectGroup<LanguageCode>
+          title={t("account.language")}
+          description={t("account.languageDescription")}
+          value={draft.language}
+          options={languageOptions}
+          onChange={(value) => setField("language", value)}
+          colors={colors}
+          spacing={spacing}
+        />
 
-          <SelectGroup<LanguageCode>
-            title={t("account.language")}
-            description={t("account.languageDescription")}
-            value={draft.language}
-            options={languageOptions}
-            onChange={(value) => setField("language", value)}
-            colors={colors}
-            spacing={spacing}
-          />
+        <AppInput
+          label={t("account.timezone")}
+          value={draft.timezone}
+          onChangeText={(value) => setField("timezone", value)}
+          placeholder="Europe/Athens"
+          autoCapitalize="none"
+        />
 
-          <SelectGroup<"on" | "off">
-            title={t("account.notifications")}
-            description={t("account.notificationsDescription")}
-            value={draft.notifications_enabled ? "on" : "off"}
-            options={[
-              { value: "on", label: t("common.enabled") },
-              { value: "off", label: t("common.disabled") }
-            ]}
-            onChange={(value) => setField("notifications_enabled", value === "on")}
-            colors={colors}
-            spacing={spacing}
-          />
+        <SelectGroup<TimeFormat>
+          title={t("account.timeFormat")}
+          description={t("account.timeFormatDescription")}
+          value={draft.time_format}
+          options={timeFormatOptions}
+          onChange={(value) => setField("time_format", value)}
+          colors={colors}
+          spacing={spacing}
+        />
 
-          <SelectGroup<DefaultView>
-            title={t("account.defaultView")}
-            description={t("account.defaultViewDescription")}
-            value={draft.default_view}
-            options={defaultViewOptions}
-            onChange={(value) => setField("default_view", value)}
-            colors={colors}
-            spacing={spacing}
-          />
+        <SelectGroup<"on" | "off">
+          title={t("account.notifications")}
+          description={t("account.notificationsDescription")}
+          value={draft.notifications_enabled ? "on" : "off"}
+          options={[
+            { value: "on", label: t("common.enabled") },
+            { value: "off", label: t("common.disabled") }
+          ]}
+          onChange={(value) => setField("notifications_enabled", value === "on")}
+          colors={colors}
+          spacing={spacing}
+        />
 
-          <SelectGroup<WeekStartsOn>
-            title={t("account.weekStartsOn")}
-            description={t("account.weekStartsDescription")}
-            value={draft.week_starts_on}
-            options={weekOptions}
-            onChange={(value) => setField("week_starts_on", value)}
-            colors={colors}
-            spacing={spacing}
-          />
+        <SelectGroup<DefaultView>
+          title={t("account.defaultView")}
+          description={t("account.defaultViewDescription")}
+          value={draft.default_view}
+          options={defaultViewOptions}
+          onChange={(value) => setField("default_view", value)}
+          colors={colors}
+          spacing={spacing}
+        />
 
-          <AppButton
-            title={isSaving ? t("common.saving") : t("common.save")}
-            onPress={() => void handleSave()}
-            loading={isSaving}
-          />
-        </View>
+        <SelectGroup<WeekStartsOn>
+          title={t("account.weekStartsOn")}
+          description={t("account.weekStartsDescription")}
+          value={draft.week_starts_on}
+          options={weekOptions}
+          onChange={(value) => setField("week_starts_on", value)}
+          colors={colors}
+          spacing={spacing}
+        />
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>{t("account.sessionTitle")}</Text>
-          <Text style={styles.hint}>{t("account.sessionHint")}</Text>
-          <AppButton title={t("common.logout")} onPress={() => void logout()} variant="danger" />
-        </View>
-      </ScrollView>
+        <AppButton title={isSaving ? t("common.saving") : t("common.save")} onPress={() => void handleSaveSettings()} loading={isSaving} />
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>{t("account.sessionTitle")}</Text>
+        <Text style={styles.hint}>{t("account.sessionHint")}</Text>
+        <AppButton title={t("common.logout")} onPress={() => void logout()} variant="danger" />
+      </View>
     </ScreenContainer>
   );
 }
@@ -260,12 +388,9 @@ function createStyles(
       color: colors.primaryBlueDark,
       fontWeight: "700"
     },
-    scrollContent: {
-      gap: spacing.md
-    },
     card: {
       backgroundColor: colors.surface,
-      borderRadius: 22,
+      borderRadius: 8,
       padding: spacing.lg,
       borderWidth: 1,
       borderColor: colors.border,
@@ -313,7 +438,8 @@ function createStyles(
     },
     hint: {
       fontSize: 14,
-      color: colors.textSecondary
+      color: colors.textSecondary,
+      lineHeight: 20
     },
     settingBlock: {
       gap: spacing.sm
@@ -328,7 +454,8 @@ function createStyles(
     },
     settingHint: {
       fontSize: 13,
-      color: colors.textSecondary
+      color: colors.textSecondary,
+      lineHeight: 19
     },
     optionRow: {
       flexDirection: "row",

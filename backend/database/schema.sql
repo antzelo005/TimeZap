@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   user_id BIGSERIAL PRIMARY KEY,
   email VARCHAR(255) NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  display_name VARCHAR(120),
   timezone VARCHAR(100) NOT NULL DEFAULT 'Europe/Athens',
   language VARCHAR(20) NOT NULL DEFAULT 'en',
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -17,10 +18,11 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS user_settings (
   setting_id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL UNIQUE REFERENCES users(user_id) ON DELETE CASCADE,
-  theme VARCHAR(20) NOT NULL DEFAULT 'light',
+  theme VARCHAR(20) NOT NULL DEFAULT 'system',
   notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   default_view VARCHAR(30) NOT NULL DEFAULT 'dashboard',
   week_starts_on VARCHAR(10) NOT NULL DEFAULT 'monday',
+  time_format VARCHAR(10) NOT NULL DEFAULT '12h',
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
   CONSTRAINT chk_user_settings_theme CHECK (theme IN ('light', 'dark', 'system')),
@@ -33,7 +35,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   title VARCHAR(150) NOT NULL,
   description TEXT,
   due_date DATE,
+  end_date DATE,
   due_time TIME,
+  start_time TIME,
+  end_time TIME,
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
   is_all_day BOOLEAN NOT NULL DEFAULT FALSE,
   completed_at TIMESTAMP,
@@ -50,6 +55,9 @@ CREATE TABLE IF NOT EXISTS habits (
   title VARCHAR(150) NOT NULL,
   description TEXT,
   start_date DATE NOT NULL,
+  end_date DATE,
+  start_time TIME,
+  end_time TIME,
   status VARCHAR(20) NOT NULL DEFAULT 'active',
   emoji VARCHAR(20),
   color VARCHAR(20),
@@ -113,8 +121,10 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_due_date ON tasks(user_id, due_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_user_end_date ON tasks(user_id, end_date);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_status ON tasks(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);
+CREATE INDEX IF NOT EXISTS idx_habits_user_end_date ON habits(user_id, end_date);
 CREATE INDEX IF NOT EXISTS idx_habit_logs_habit_date ON habit_logs(habit_id, log_date);
 CREATE INDEX IF NOT EXISTS idx_habit_logs_user_date ON habit_logs(user_id, log_date);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_scheduled ON notifications(user_id, scheduled_for);

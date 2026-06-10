@@ -5,8 +5,8 @@ export type AuthStackParamList = {
 
 export type MainTabParamList = {
   Dashboard: undefined;
-  Tasks: undefined;
-  Habits: undefined;
-  Calendar: undefined;
+  Tasks: { selectedDate?: string } | undefined;
+  Habits: { selectedDate?: string } | undefined;
+  Calendar: { selectedDate?: string } | undefined;
   Account: undefined;
 };

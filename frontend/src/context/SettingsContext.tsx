@@ -7,10 +7,11 @@ import type {
   DefaultView,
   LanguageCode,
   ThemeMode,
+  TimeFormat,
   UpdateSettingsPayload,
   WeekStartsOn
 } from "../types/settings";
-import { clearStoredSettings, getStoredSettings, setStoredSettings } from "../storage/settingsStorage";
+import { getStoredSettings, setStoredSettings } from "../storage/settingsStorage";
 import { getErrorMessage } from "../types/api";
 
 interface SettingsContextValue {
@@ -34,17 +35,18 @@ function getLocalTimezone(): string {
 
 function getDefaultSettings(): AppSettings {
   return {
-    theme: "light",
+    theme: "system",
     language: "en",
     notifications_enabled: true,
     default_view: "dashboard",
     week_starts_on: "monday",
+    time_format: "12h",
     timezone: getLocalTimezone()
   };
 }
 
 function normalizeTheme(theme: string | undefined): ThemeMode {
-  return theme === "dark" || theme === "system" ? theme : "light";
+  return theme === "light" || theme === "dark" || theme === "system" ? theme : "system";
 }
 
 function normalizeLanguage(language: string | undefined): LanguageCode {
@@ -61,6 +63,10 @@ function normalizeWeekStartsOn(value: string | undefined): WeekStartsOn {
   return value === "sunday" ? "sunday" : "monday";
 }
 
+function normalizeTimeFormat(value: string | undefined): TimeFormat {
+  return value === "24h" ? "24h" : "12h";
+}
+
 function normalizeSettings(settings: Partial<AppSettings> | null | undefined): AppSettings {
   const defaults = getDefaultSettings();
 
@@ -73,6 +79,7 @@ function normalizeSettings(settings: Partial<AppSettings> | null | undefined): A
         : defaults.notifications_enabled,
     default_view: normalizeDefaultView(settings?.default_view),
     week_starts_on: normalizeWeekStartsOn(settings?.week_starts_on),
+    time_format: normalizeTimeFormat(settings?.time_format),
     timezone: settings?.timezone || defaults.timezone
   };
 }
@@ -94,15 +101,25 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     }
 
     if (!isAuthenticated) {
-      setSettings(getDefaultSettings());
-      setError("");
-      setIsLoading(false);
-      void clearStoredSettings();
+      void loadStoredSettings();
       return;
     }
 
     void loadSettings();
   }, [isAuthenticated, isBootstrapping]);
+
+  async function loadStoredSettings(): Promise<void> {
+    try {
+      setError("");
+      setIsLoading(true);
+      const cachedSettings = await getStoredSettings();
+      setSettings(cachedSettings ? normalizeSettings(cachedSettings) : getDefaultSettings());
+    } catch {
+      setSettings(getDefaultSettings());
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   async function loadSettings(): Promise<void> {
     try {
@@ -143,6 +160,10 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       setIsSaving(true);
       setSettings(optimistic);
       await setStoredSettings(optimistic);
+
+      if (!isAuthenticated) {
+        return;
+      }
 
       const response = await updateSettingsRequest(payload);
       const normalized = normalizeSettings(response.settings);

@@ -3,7 +3,10 @@ export interface DashboardTaskItem {
   title: string;
   description?: string | null;
   due_date?: string | null;
+  end_date?: string | null;
   due_time?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
   status: string;
   is_all_day?: boolean;
   completed_at?: string | null;
@@ -18,6 +21,9 @@ export interface DashboardHabitItem {
   title: string;
   description?: string | null;
   start_date?: string;
+  end_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
   status?: string;
   emoji?: string | null;
   color?: string | null;

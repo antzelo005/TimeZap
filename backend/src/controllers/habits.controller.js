@@ -1,11 +1,13 @@
 const { pool, query } = require("../config/db");
 const {
+  calculateCurrentDailyStreak,
   createAppError,
   getTodayDateString,
   isNonEmptyString,
   parseId,
   validateISODate,
-  validateEnum
+  validateEnum,
+  validateTime
 } = require("../utils/validators");
 
 const ALLOWED_HABIT_STATUSES = ["active", "archived"];
@@ -42,6 +44,9 @@ function mapHabitRow(habitRow, ruleRow, dayRows) {
     title: habitRow.title,
     description: habitRow.description,
     start_date: habitRow.start_date,
+    end_date: habitRow.end_date,
+    start_time: habitRow.start_time,
+    end_time: habitRow.end_time,
     status: habitRow.status,
     emoji: habitRow.emoji,
     color: habitRow.color,
@@ -68,7 +73,7 @@ function mapHabitRow(habitRow, ruleRow, dayRows) {
 
 function validateHabitPayload(body, options = {}) {
   const { requireTitle = true, requireStartDate = true } = options;
-  const { title, start_date, status, rule } = body;
+  const { title, start_date, end_date, start_time, end_time, status, rule } = body;
 
   if (requireTitle && !isNonEmptyString(title)) {
     throw createAppError(400, "Title is required");
@@ -80,6 +85,22 @@ function validateHabitPayload(body, options = {}) {
 
   if (start_date && !validateISODate(start_date)) {
     throw createAppError(400, "start_date must be a valid ISO date");
+  }
+
+  if (end_date && !validateISODate(end_date)) {
+    throw createAppError(400, "end_date must be a valid ISO date");
+  }
+
+  if (start_date && end_date && end_date < start_date) {
+    throw createAppError(400, "end_date must be on or after start_date");
+  }
+
+  if (start_time && !validateTime(start_time)) {
+    throw createAppError(400, "start_time must be a valid time");
+  }
+
+  if (end_time && !validateTime(end_time)) {
+    throw createAppError(400, "end_time must be a valid time");
   }
 
   if (status && !validateEnum(status, ALLOWED_HABIT_STATUSES)) {
@@ -109,6 +130,9 @@ async function getHabitWithRule(userId, habitId) {
        title,
        description,
        to_char(start_date, 'YYYY-MM-DD') AS start_date,
+       to_char(end_date, 'YYYY-MM-DD') AS end_date,
+       to_char(start_time, 'HH24:MI:SS') AS start_time,
+       to_char(end_time, 'HH24:MI:SS') AS end_time,
        status,
        emoji,
        color,
@@ -170,6 +194,9 @@ async function getHabits(req, res, next) {
          title,
          description,
          to_char(start_date, 'YYYY-MM-DD') AS start_date,
+         to_char(end_date, 'YYYY-MM-DD') AS end_date,
+         to_char(start_time, 'HH24:MI:SS') AS start_time,
+         to_char(end_time, 'HH24:MI:SS') AS end_time,
          status,
          emoji,
          color,
@@ -222,6 +249,9 @@ async function createHabit(req, res, next) {
       title,
       description,
       start_date,
+      end_date,
+      start_time,
+      end_time,
       emoji,
       color,
       rule = {}
@@ -236,18 +266,24 @@ async function createHabit(req, res, next) {
          title,
          description,
          start_date,
+         end_date,
+         start_time,
+         end_time,
          status,
          emoji,
          color,
          created_at,
          updated_at
-       ) VALUES ($1, $2, $3, $4, 'active', $5, $6, NOW(), NOW())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, NOW(), NOW())
        RETURNING habit_id`,
       [
         req.user.user_id,
         title.trim(),
         description || null,
         start_date,
+        end_date || null,
+        start_time || null,
+        end_time || null,
         emoji || null,
         color || null
       ]
@@ -324,6 +360,9 @@ async function updateHabit(req, res, next) {
       title,
       description,
       start_date,
+      end_date,
+      start_time,
+      end_time,
       status,
       emoji,
       color,
@@ -339,15 +378,21 @@ async function updateHabit(req, res, next) {
          title = $1,
          description = $2,
          start_date = $3,
-         status = $4,
-         emoji = $5,
-         color = $6,
+         end_date = $4,
+         start_time = $5,
+         end_time = $6,
+         status = $7,
+         emoji = $8,
+         color = $9,
          updated_at = NOW()
-       WHERE habit_id = $7 AND user_id = $8`,
+       WHERE habit_id = $10 AND user_id = $11`,
       [
         title.trim(),
         description || null,
         start_date,
+        end_date || null,
+        start_time || null,
+        end_time || null,
         status || existingHabit.status,
         emoji || null,
         color || null,
@@ -448,6 +493,10 @@ async function logHabit(req, res, next) {
       throw createAppError(404, "Habit not found");
     }
 
+    if (requestedDate < habit.start_date || (habit.end_date && requestedDate > habit.end_date)) {
+      throw createAppError(400, "Habit is not active on this date");
+    }
+
     const existingLog = await query(
       `SELECT habit_log_id
        FROM habit_logs
@@ -530,24 +579,7 @@ async function getHabitStreak(req, res, next) {
       [habitId, req.user.user_id]
     );
 
-    const completedDates = new Set(logsResult.rows.map((row) => row.log_date));
-    const today = new Date();
-
-    const todayString = today.toISOString().slice(0, 10);
-    const yesterday = new Date(today);
-    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-    let cursor = completedDates.has(todayString) ? new Date(today) : yesterday;
-    let streak = 0;
-
-    while (true) {
-      const dateString = cursor.toISOString().slice(0, 10);
-      if (!completedDates.has(dateString)) {
-        break;
-      }
-
-      streak += 1;
-      cursor.setUTCDate(cursor.getUTCDate() - 1);
-    }
+    const streak = calculateCurrentDailyStreak(logsResult.rows.map((row) => row.log_date));
 
     res.status(200).json({
       habit_id: habitId,

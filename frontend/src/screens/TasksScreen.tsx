@@ -1,21 +1,25 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import type { RouteProp } from "@react-navigation/native";
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
+import DateField from "../components/DateField";
+import EmptyState from "../components/EmptyState";
+import FloatingActionButton from "../components/FloatingActionButton";
+import FormModal from "../components/FormModal";
+import IconColorPicker, { IconBadge } from "../components/IconColorPicker";
 import ScreenContainer from "../components/ScreenContainer";
-import {
-  cancelTask,
-  completeTask,
-  createTask,
-  deleteTask,
-  getTasks,
-  updateTask
-} from "../api/tasks.api";
+import TimeField from "../components/TimeField";
+import { completeTask, createTask, deleteTask, getTasks, updateTask } from "../api/tasks.api";
 import type { CreateTaskPayload, Task } from "../types/task";
+import type { MainTabParamList } from "../types/navigation";
 import { getErrorMessage } from "../types/api";
 import { useAppTheme } from "../theme/useAppTheme";
 import { useTranslation } from "../i18n";
 import { useSettings } from "../context/SettingsContext";
+import { notifyDashboardChanged } from "../services/appEvents";
 import {
   cancelLocalNotification,
   checkNotificationAvailability,
@@ -23,28 +27,28 @@ import {
   scheduleTaskReminder
 } from "../services/notifications";
 import type { LocalReminderRecord, ScheduleReminderResult } from "../types/notification";
+import { createLocalDate, formatLocalDate } from "../utils/date";
+import { formatTimeRangeForDisplay, normalizeTimeForInput, timeToMinutes } from "../utils/time";
 
-type TaskFilter = "all" | "pending" | "completed" | "overdue";
-type TaskStatus = Task["status"];
+type TaskFilter = "pending" | "overdue" | "completed";
+type TaskFormMode = "create" | "edit" | "move";
+
+const TASK_GRACE_PERIOD_MINUTES = 60;
 
 interface TaskFormState {
   title: string;
   description: string;
   due_date: string;
-  due_time: string;
+  end_date: string;
+  is_multi_day: boolean;
+  start_time: string;
+  end_time: string;
   is_all_day: boolean;
   emoji: string;
   color: string;
   reminder_enabled: boolean;
   reminder_date: string;
   reminder_time: string;
-}
-
-interface TaskSection {
-  key: TaskStatus | "overdue";
-  title: string;
-  emptyMessage: string;
-  items: Task[];
 }
 
 type ConfirmableGlobal = typeof globalThis & {
@@ -55,23 +59,18 @@ function getEmptyForm(): TaskFormState {
   return {
     title: "",
     description: "",
-    due_date: "",
-    due_time: "",
+    due_date: formatLocalDate(new Date()),
+    end_date: "",
+    is_multi_day: false,
+    start_time: "09:00",
+    end_time: "10:00",
     is_all_day: false,
-    emoji: "",
-    color: "",
+    emoji: "zap",
+    color: "#2563EB",
     reminder_enabled: false,
     reminder_date: "",
     reminder_time: "09:00"
   };
-}
-
-function normalizeTimeForInput(value: string | null): string {
-  if (!value) {
-    return "";
-  }
-
-  return value.split(":").slice(0, 2).join(":");
 }
 
 function taskToForm(task: Task): TaskFormState {
@@ -79,10 +78,13 @@ function taskToForm(task: Task): TaskFormState {
     title: task.title,
     description: task.description ?? "",
     due_date: task.due_date ?? "",
-    due_time: normalizeTimeForInput(task.due_time),
+    end_date: task.end_date ?? "",
+    is_multi_day: Boolean(task.end_date && task.end_date !== task.due_date),
+    start_time: normalizeTimeForInput(task.start_time || task.due_time),
+    end_time: normalizeTimeForInput(task.end_time),
     is_all_day: task.is_all_day,
-    emoji: task.emoji ?? "",
-    color: task.color ?? "",
+    emoji: task.emoji ?? "zap",
+    color: task.color ?? "#2563EB",
     reminder_enabled: false,
     reminder_date: "",
     reminder_time: "09:00"
@@ -95,15 +97,29 @@ function cleanOptional(value: string): string | null {
 }
 
 function formToPayload(form: TaskFormState): CreateTaskPayload {
+  const startTime = form.is_all_day || !form.due_date ? null : cleanOptional(form.start_time);
+  const endTime = form.is_all_day || !form.due_date ? null : cleanOptional(form.end_time);
+  const dueDate = cleanOptional(form.due_date);
+  const endDate = form.is_multi_day && dueDate ? cleanOptional(form.end_date) : null;
+
   return {
     title: form.title.trim(),
     description: cleanOptional(form.description),
-    due_date: cleanOptional(form.due_date),
-    due_time: form.is_all_day ? null : cleanOptional(form.due_time),
+    due_date: dueDate,
+    end_date: endDate,
+    due_time: startTime,
+    start_time: startTime,
+    end_time: endTime,
     is_all_day: form.is_all_day,
     emoji: cleanOptional(form.emoji),
     color: cleanOptional(form.color)
   };
+}
+
+function shiftIsoDate(value: string, offset: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const shifted = createLocalDate(year, month - 1, day + offset);
+  return formatLocalDate(shifted);
 }
 
 function isValidDateInput(value: string): boolean {
@@ -113,11 +129,20 @@ function isValidDateInput(value: string): boolean {
 
   const [year, month, day] = value.split("-").map(Number);
   const parsed = new Date(year, month - 1, day);
-  return (
-    parsed.getFullYear() === year &&
-    parsed.getMonth() === month - 1 &&
-    parsed.getDate() === day
-  );
+  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+}
+
+function isDateOnOrAfter(value: string, minimum: string): boolean {
+  return value.localeCompare(minimum) >= 0;
+}
+
+function isTaskActiveOnDate(task: Task, date: string): boolean {
+  if (!task.due_date) {
+    return false;
+  }
+
+  const endDate = task.end_date || task.due_date;
+  return task.due_date <= date && endDate >= date;
 }
 
 function parseReminderTime(value: string): { hour: number; minute: number } | null {
@@ -155,32 +180,48 @@ function mergeReminderIntoForm(form: TaskFormState, reminder?: LocalReminderReco
   return {
     ...form,
     reminder_enabled: true,
-    reminder_date: reminder.reminder_date ?? "",
-    reminder_time: reminder.reminder_time
+    reminder_date: reminder.scheduled_date ?? reminder.reminder_date ?? "",
+    reminder_time: reminder.scheduled_time ?? reminder.reminder_time
   };
 }
 
-function getStatusOrder(status: TaskStatus): number {
-  if (status === "pending") {
-    return 0;
+function getStatusOrder(task: Task): number {
+  if (task.status === "pending") {
+    return isTaskOverdueLocal(task) ? -1 : 0;
   }
 
-  if (status === "completed") {
+  if (task.status === "completed") {
     return 1;
   }
 
   return 2;
 }
 
+function isTaskOverdueLocal(task: Task, now = new Date()): boolean {
+  if (task.status !== "pending" || !task.due_date) {
+    return false;
+  }
+
+  const overdueDate = task.end_date || task.due_date;
+  const [year, month, day] = overdueDate.split("-").map(Number);
+  const startTime = task.end_date ? task.end_time || task.start_time || task.due_time : task.start_time || task.due_time;
+
+  if (task.is_all_day || !startTime) {
+    const tomorrowStart = createLocalDate(year, month - 1, day + 1);
+    return now.getTime() >= tomorrowStart.getTime();
+  }
+
+  const [hour, minute] = normalizeTimeForInput(startTime).split(":").map(Number);
+  const dueAt = new Date(year, month - 1, day, hour, minute, 0, 0);
+  const graceDeadline = new Date(dueAt.getTime() + TASK_GRACE_PERIOD_MINUTES * 60 * 1000);
+  return now.getTime() >= graceDeadline.getTime();
+}
+
 function sortTasks(tasks: Task[]): Task[] {
   return [...tasks].sort((first, second) => {
-    const statusDifference = getStatusOrder(first.status) - getStatusOrder(second.status);
+    const statusDifference = getStatusOrder(first) - getStatusOrder(second);
     if (statusDifference !== 0) {
       return statusDifference;
-    }
-
-    if (first.is_overdue !== second.is_overdue) {
-      return first.is_overdue ? -1 : 1;
     }
 
     const firstDate = first.due_date ?? "9999-12-31";
@@ -189,8 +230,8 @@ function sortTasks(tasks: Task[]): Task[] {
       return firstDate.localeCompare(secondDate);
     }
 
-    const firstTime = first.due_time ?? "99:99:99";
-    const secondTime = second.due_time ?? "99:99:99";
+    const firstTime = first.start_time ?? first.due_time ?? "99:99:99";
+    const secondTime = second.start_time ?? second.due_time ?? "99:99:99";
     return firstTime.localeCompare(secondTime);
   });
 }
@@ -199,12 +240,18 @@ export default function TasksScreen() {
   const { colors, spacing } = useAppTheme();
   const { t } = useTranslation();
   const { settings } = useSettings();
+  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList, "Tasks">>();
+  const route = useRoute<RouteProp<MainTabParamList, "Tasks">>();
   const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
+  const selectedDate = route.params?.selectedDate;
+  const today = useMemo(() => formatLocalDate(new Date()), []);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [taskReminders, setTaskReminders] = useState<Record<string, LocalReminderRecord>>({});
   const [form, setForm] = useState<TaskFormState>(() => getEmptyForm());
+  const [formMode, setFormMode] = useState<TaskFormMode>("create");
+  const [formOpen, setFormOpen] = useState<boolean>(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<TaskFilter>("all");
+  const [activeFilter, setActiveFilter] = useState<TaskFilter>("pending");
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [actionTaskId, setActionTaskId] = useState<string | null>(null);
@@ -217,80 +264,21 @@ export default function TasksScreen() {
   }, []);
 
   const sortedTasks = useMemo(() => sortTasks(tasks), [tasks]);
-  const filterOptions: Array<{ key: TaskFilter; label: string }> = [
-    { key: "all", label: t("tasks.filterAll") },
-    { key: "pending", label: t("tasks.filterPending") },
-    { key: "completed", label: t("tasks.filterCompleted") },
-    { key: "overdue", label: t("tasks.filterOverdue") }
-  ];
-
-  const visibleSections = useMemo<TaskSection[]>(() => {
-    const pending = sortedTasks.filter((task) => task.status === "pending");
-    const completed = sortedTasks.filter((task) => task.status === "completed");
-    const cancelled = sortedTasks.filter((task) => task.status === "cancelled");
-    const overdue = pending.filter((task) => task.is_overdue);
-
-    if (activeFilter === "pending") {
-      return [
-        {
-          key: "pending",
-          title: t("tasks.pendingSection"),
-          emptyMessage: t("tasks.noPendingTasks"),
-          items: pending
-        }
-      ];
-    }
-
-    if (activeFilter === "completed") {
-      return [
-        {
-          key: "completed",
-          title: t("tasks.completedSection"),
-          emptyMessage: t("tasks.noCompletedTasks"),
-          items: completed
-        }
-      ];
-    }
-
-    if (activeFilter === "overdue") {
-      return [
-        {
-          key: "overdue",
-          title: t("tasks.overdueSection"),
-          emptyMessage: t("tasks.noOverdueTasks"),
-          items: overdue
-        }
-      ];
-    }
-
-    return [
-      {
-        key: "pending",
-        title: t("tasks.pendingSection"),
-        emptyMessage: t("tasks.noPendingTasks"),
-        items: pending
-      },
-      {
-        key: "completed",
-        title: t("tasks.completedSection"),
-        emptyMessage: t("tasks.noCompletedTasks"),
-        items: completed
-      },
-      {
-        key: "cancelled",
-        title: t("tasks.cancelledSection"),
-        emptyMessage: t("tasks.noCancelledTasks"),
-        items: cancelled
-      }
-    ];
-  }, [activeFilter, sortedTasks, t]);
-
+  const dateFilteredTasks = useMemo(
+    () => (selectedDate ? sortedTasks.filter((task) => isTaskActiveOnDate(task, selectedDate)) : sortedTasks),
+    [selectedDate, sortedTasks]
+  );
+  const pendingTasks = dateFilteredTasks.filter((task) => task.status === "pending");
+  const overdueTasks = pendingTasks.filter((task) => isTaskOverdueLocal(task));
+  const completedTasks = dateFilteredTasks.filter((task) => task.status === "completed");
+  const visibleTasks =
+    activeFilter === "completed" ? completedTasks : activeFilter === "overdue" ? overdueTasks : pendingTasks;
   const taskCounts = useMemo(
     () => ({
-      total: tasks.length,
+      total: tasks.filter((task) => task.status !== "cancelled").length,
       pending: tasks.filter((task) => task.status === "pending").length,
       completed: tasks.filter((task) => task.status === "completed").length,
-      overdue: tasks.filter((task) => task.status === "pending" && task.is_overdue).length
+      overdue: tasks.filter((task) => isTaskOverdueLocal(task)).length
     }),
     [tasks]
   );
@@ -300,10 +288,7 @@ export default function TasksScreen() {
     try {
       setError("");
       setLoading(true);
-      const [response, reminders] = await Promise.all([
-        getTasks(),
-        getLocalRemindersByType("task")
-      ]);
+      const [response, reminders] = await Promise.all([getTasks(), getLocalRemindersByType("task")]);
       setTasks(response.items || []);
       setTaskReminders(reminders);
     } catch (err: unknown) {
@@ -313,16 +298,50 @@ export default function TasksScreen() {
     }
   }
 
-  function resetForm(clearReminderMessage: boolean = true): void {
+  function closeForm(): void {
+    setFormOpen(false);
     setForm(getEmptyForm());
     setEditingTaskId(null);
     setFormError("");
-    if (clearReminderMessage) {
-      setReminderMessage("");
-    }
+    setReminderMessage("");
+    setFormMode("create");
+  }
+
+  function openNewTask(): void {
+    setForm({
+      ...getEmptyForm(),
+      due_date: selectedDate ?? today
+    });
+    setEditingTaskId(null);
+    setFormMode("create");
+    setFormError("");
+    setReminderMessage("");
+    setFormOpen(true);
+  }
+
+  function openTaskForm(task: Task, mode: TaskFormMode = "edit"): void {
+    setEditingTaskId(task.task_id);
+    setForm(mergeReminderIntoForm(taskToForm(task), taskReminders[task.task_id]));
+    setFormMode(mode);
+    setFormError("");
+    setReminderMessage("");
+    setFormOpen(true);
+  }
+
+  function changeDateFilter(offset: number): void {
+    const baseDate = selectedDate && isValidDateInput(selectedDate) ? selectedDate : today;
+    navigation.setParams({ selectedDate: shiftIsoDate(baseDate, offset) });
   }
 
   function getReminderStatusMessage(result: ScheduleReminderResult): string {
+    if (result.reason === "past_date") {
+      return t("notifications.pastDate");
+    }
+
+    if (!settings.notifications_enabled) {
+      return t("notifications.disabledInSettings");
+    }
+
     if (result.ok) {
       return t("notifications.reminderScheduled");
     }
@@ -332,11 +351,9 @@ export default function TasksScreen() {
     }
 
     if (result.reason === "unsupported") {
-      return t("notifications.reminderUnsupported");
-    }
-
-    if (result.reason === "past_date") {
-      return t("notifications.pastDate");
+      return notificationAvailability.reason === "web_unsupported"
+        ? t("notifications.webUnsupported")
+        : t("notifications.reminderUnsupported");
     }
 
     return t("notifications.invalidDateTime");
@@ -355,20 +372,6 @@ export default function TasksScreen() {
       return;
     }
 
-    if (!settings.notifications_enabled) {
-      await cancelLocalNotification("task", task.task_id);
-      setReminderMessage(t("notifications.disabledInSettings"));
-      await refreshTaskReminders();
-      return;
-    }
-
-    if (!notificationAvailability.available) {
-      await cancelLocalNotification("task", task.task_id);
-      setReminderMessage(t("notifications.webUnsupported"));
-      await refreshTaskReminders();
-      return;
-    }
-
     if (task.status !== "pending") {
       await cancelLocalNotification("task", task.task_id);
       setReminderMessage(t("notifications.onlyPendingTasks"));
@@ -376,8 +379,18 @@ export default function TasksScreen() {
       return;
     }
 
-    const reminderDate = form.reminder_date.trim() || payload.due_date || "";
-    const reminderTime = form.reminder_time.trim() || payload.due_time || "09:00";
+    const scheduledTime = payload.is_all_day
+      ? null
+      : payload.end_date
+        ? payload.end_time || payload.start_time || payload.due_time
+        : payload.start_time || payload.due_time;
+    const includeGraceWarnings = Boolean(scheduledTime);
+    const reminderDate = includeGraceWarnings
+      ? payload.end_date || payload.due_date || ""
+      : form.reminder_date.trim() || payload.due_date || "";
+    const reminderTime = includeGraceWarnings
+      ? scheduledTime ?? ""
+      : form.reminder_time.trim() || "09:00";
     const scheduledFor = buildReminderDateTime(reminderDate, reminderTime);
 
     if (!scheduledFor) {
@@ -388,10 +401,19 @@ export default function TasksScreen() {
     const result = await scheduleTaskReminder({
       taskId: task.task_id,
       title: t("notifications.taskNotificationTitle"),
-      body: t("notifications.taskNotificationBody", { title: task.title }),
+      body: includeGraceWarnings
+        ? t("notifications.taskStandardReminderBody", { title: task.title })
+        : t("notifications.taskNotificationBody", { title: task.title }),
       scheduledFor,
-      reminderDate,
-      reminderTime
+      overdueWarningTitle: t("notifications.overdueWarningTitle"),
+      overdueWarningBodies: {
+        30: t("notifications.taskOverdueWarning30", { title: task.title }),
+        15: t("notifications.taskOverdueWarning15", { title: task.title }),
+        5: t("notifications.taskOverdueWarning5", { title: task.title })
+      },
+      includeGraceWarnings,
+      standardLeadMinutes: includeGraceWarnings ? 30 : 0,
+      deviceNotificationsEnabled: settings.notifications_enabled
     });
 
     setReminderMessage(getReminderStatusMessage(result));
@@ -422,31 +444,47 @@ export default function TasksScreen() {
       return;
     }
 
+    if (payload.due_date && !form.is_all_day && (!payload.start_time || !payload.end_time)) {
+      setFormError(t("tasks.timeRequired"));
+      return;
+    }
+
+    if (form.is_multi_day && payload.due_date && !payload.end_date) {
+      setFormError(t("tasks.endDateRequired"));
+      return;
+    }
+
+    if (payload.due_date && payload.end_date && !isDateOnOrAfter(payload.end_date, payload.due_date)) {
+      setFormError(t("tasks.endDateAfterStart"));
+      return;
+    }
+
+    if (payload.start_time && payload.end_time) {
+      const startMinutes = timeToMinutes(payload.start_time);
+      const endMinutes = timeToMinutes(payload.end_time);
+      const sameDayRange = !payload.end_date || payload.end_date === payload.due_date;
+
+      if (sameDayRange && startMinutes !== null && endMinutes !== null && endMinutes <= startMinutes) {
+        setFormError(t("tasks.finishAfterStart"));
+        return;
+      }
+    }
+
     try {
       setSubmitting(true);
       setError("");
       setFormError("");
 
-      const response = editingTaskId
-        ? await updateTask(editingTaskId, payload)
-        : await createTask(payload);
-
+      const response = editingTaskId ? await updateTask(editingTaskId, payload) : await createTask(payload);
       await syncTaskReminder(response.task, payload);
-
-      resetForm(false);
       await loadTasks();
+      notifyDashboardChanged();
+      closeForm();
     } catch (err: unknown) {
       Alert.alert(t("tasks.errorTitle"), getErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
-  }
-
-  function handleEditTask(task: Task): void {
-    setEditingTaskId(task.task_id);
-    setForm(mergeReminderIntoForm(taskToForm(task), taskReminders[task.task_id]));
-    setFormError("");
-    setReminderMessage("");
   }
 
   function toggleTaskReminder(): void {
@@ -457,11 +495,9 @@ export default function TasksScreen() {
       return {
         ...current,
         reminder_enabled: enabling,
-        reminder_date: enabling
-          ? current.reminder_date || current.due_date || ""
-          : current.reminder_date,
+        reminder_date: enabling ? current.reminder_date || current.due_date || "" : current.reminder_date,
         reminder_time: enabling
-          ? current.reminder_time || normalizeTimeForInput(current.due_time) || "09:00"
+          ? normalizeTimeForInput(current.start_time) || current.reminder_time || "09:00"
           : current.reminder_time
       };
     });
@@ -473,6 +509,7 @@ export default function TasksScreen() {
       setError("");
       await action();
       await loadTasks();
+      notifyDashboardChanged();
     } catch (err: unknown) {
       Alert.alert(t("tasks.errorTitle"), getErrorMessage(err));
     } finally {
@@ -484,21 +521,6 @@ export default function TasksScreen() {
     await runTaskAction(taskId, async () => {
       try {
         await completeTask(taskId);
-      } catch (err: unknown) {
-        const message = getErrorMessage(err);
-        if (!message.toLowerCase().includes("unexpected token")) {
-          throw err;
-        }
-      }
-      await cancelLocalNotification("task", taskId);
-      await refreshTaskReminders();
-    });
-  }
-
-  async function handleCancelTask(taskId: string): Promise<void> {
-    await runTaskAction(taskId, async () => {
-      try {
-        await cancelTask(taskId);
       } catch (err: unknown) {
         const message = getErrorMessage(err);
         if (!message.toLowerCase().includes("unexpected token")) {
@@ -522,7 +544,7 @@ export default function TasksScreen() {
     }
 
     if (editingTaskId === task.task_id) {
-      resetForm();
+      closeForm();
     }
 
     await runTaskAction(task.task_id, async () => {
@@ -533,14 +555,15 @@ export default function TasksScreen() {
   }
 
   function getDueLabel(task: Task): string {
-    const dateLabel = task.due_date ?? t("tasks.noDueDate");
+    const dateLabel =
+      task.due_date && task.end_date && task.end_date !== task.due_date
+        ? `${task.due_date} -> ${task.end_date}`
+        : task.due_date ?? t("tasks.noDueDate");
     const timeLabel = task.is_all_day
       ? t("tasks.allDay")
-      : task.due_time
-        ? normalizeTimeForInput(task.due_time)
-        : "";
+      : formatTimeRangeForDisplay(task.start_time || task.due_time, task.end_time, settings.time_format);
 
-    return timeLabel ? `${dateLabel} • ${timeLabel}` : dateLabel;
+    return timeLabel ? `${dateLabel} / ${timeLabel}` : dateLabel;
   }
 
   function getStatusLabel(task: Task): string {
@@ -548,11 +571,7 @@ export default function TasksScreen() {
       return t("common.completed");
     }
 
-    if (task.status === "cancelled") {
-      return t("common.cancelled");
-    }
-
-    if (task.is_overdue) {
+    if (isTaskOverdueLocal(task)) {
       return t("tasks.overdue");
     }
 
@@ -561,28 +580,19 @@ export default function TasksScreen() {
 
   function renderTask(task: Task) {
     const isCompleted = task.status === "completed";
-    const isCancelled = task.status === "cancelled";
     const isPending = task.status === "pending";
     const isBusy = actionTaskId === task.task_id;
+    const isOverdue = isTaskOverdueLocal(task);
 
     return (
       <View
         key={task.task_id}
-        style={[
-          styles.itemCard,
-          task.is_overdue ? styles.itemCardOverdue : null,
-          isCompleted ? styles.itemCardCompleted : null,
-          isCancelled ? styles.itemCardCancelled : null
-        ]}
+        style={[styles.itemCard, isOverdue ? styles.itemCardOverdue : null, isCompleted ? styles.itemCardCompleted : null]}
       >
         <View style={styles.itemHeader}>
+          <IconBadge iconId={task.emoji} color={task.color} />
           <View style={styles.itemText}>
-            <View style={styles.titleRow}>
-              {task.color ? <View style={[styles.colorDot, { backgroundColor: task.color }]} /> : null}
-              <Text style={[styles.itemTitle, isCompleted || isCancelled ? styles.itemTitleMuted : null]}>
-                {task.emoji ? `${task.emoji} ${task.title}` : task.title}
-              </Text>
-            </View>
+            <Text style={[styles.itemTitle, isCompleted ? styles.itemTitleMuted : null]}>{task.title}</Text>
             {task.description ? <Text style={styles.itemDescription}>{task.description}</Text> : null}
             <Text style={styles.itemMeta}>{getDueLabel(task)}</Text>
             {taskReminders[task.task_id] ? (
@@ -593,18 +603,7 @@ export default function TasksScreen() {
               </Text>
             ) : null}
           </View>
-          <Text
-            style={[
-              styles.statusChip,
-              isCompleted
-                ? styles.statusDone
-                : isCancelled
-                  ? styles.statusCancelled
-                  : task.is_overdue
-                    ? styles.statusOverdue
-                    : styles.statusPending
-            ]}
-          >
+          <Text style={[styles.statusChip, isCompleted ? styles.statusDone : isOverdue ? styles.statusOverdue : styles.statusPending]}>
             {getStatusLabel(task)}
           </Text>
         </View>
@@ -627,7 +626,7 @@ export default function TasksScreen() {
           {isPending ? (
             <Pressable
               disabled={isBusy}
-              onPress={() => void handleCancelTask(task.task_id)}
+              onPress={() => openTaskForm(task, "move")}
               style={({ pressed }) => [
                 styles.actionButton,
                 styles.actionSecondary,
@@ -635,12 +634,12 @@ export default function TasksScreen() {
                 pressed ? styles.actionPressed : null
               ]}
             >
-              <Text style={styles.actionSecondaryText}>{t("tasks.cancelTask")}</Text>
+              <Text style={styles.actionSecondaryText}>{t("tasks.moveTask")}</Text>
             </Pressable>
           ) : null}
           <Pressable
             disabled={isBusy}
-            onPress={() => handleEditTask(task)}
+            onPress={() => openTaskForm(task, "edit")}
             style={({ pressed }) => [
               styles.actionButton,
               styles.actionSecondary,
@@ -667,205 +666,334 @@ export default function TasksScreen() {
     );
   }
 
-  return (
-    <ScreenContainer>
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.title}>{t("tasks.title")}</Text>
-          <Text style={styles.subtitle}>
-            {t("tasks.summary", {
-              total: taskCounts.total,
-              pending: taskCounts.pending,
-              completed: taskCounts.completed,
-              overdue: taskCounts.overdue
-            })}
-          </Text>
-        </View>
-        <View style={styles.headerPill}>
-          <Text style={styles.headerPillText}>{t("tasks.focus")}</Text>
-        </View>
-      </View>
+  function renderFormModal() {
+    const modalTitle =
+      formMode === "move" ? t("tasks.moveTaskTitle") : editingTaskId ? t("tasks.editTaskTitle") : t("tasks.newTask");
+    const isMoveMode = formMode === "move";
 
-      <View style={styles.formCard}>
-        <View style={styles.formHeader}>
-          <Text style={styles.sectionTitle}>
-            {editingTaskId ? t("tasks.editTaskTitle") : t("tasks.newTask")}
-          </Text>
-          {editingTaskId ? (
-            <Pressable onPress={() => resetForm()} style={styles.clearEditButton}>
-              <Text style={styles.clearEditButtonText}>{t("common.cancel")}</Text>
-            </Pressable>
-          ) : null}
-        </View>
-
-        <AppInput
-          label={t("tasks.titleLabel")}
-          value={form.title}
-          onChangeText={(value) => setForm((current) => ({ ...current, title: value }))}
-          placeholder={t("tasks.titlePlaceholder")}
-          error={formError}
-        />
-        <AppInput
-          label={t("tasks.descriptionLabel")}
-          value={form.description}
-          onChangeText={(value) => setForm((current) => ({ ...current, description: value }))}
-          placeholder={t("tasks.descriptionPlaceholder")}
-          multiline
-          style={styles.multilineInput}
-        />
-        <View style={styles.formRow}>
-          <View style={styles.formColumn}>
-            <AppInput
-              label={t("tasks.dueDate")}
-              value={form.due_date}
-              onChangeText={(value) => setForm((current) => ({ ...current, due_date: value }))}
-              placeholder="2026-06-01"
-            />
-          </View>
-          <View style={styles.formColumn}>
-            <AppInput
-              label={t("tasks.dueTime")}
-              value={form.due_time}
-              onChangeText={(value) => setForm((current) => ({ ...current, due_time: value }))}
-              placeholder="18:00"
-              editable={!form.is_all_day}
-            />
-          </View>
-        </View>
-
-        <Pressable
-          onPress={() =>
-            setForm((current) => ({
-              ...current,
-              is_all_day: !current.is_all_day,
-              due_time: !current.is_all_day ? "" : current.due_time
-            }))
-          }
-          style={styles.toggleRow}
-        >
-          <View style={[styles.checkbox, form.is_all_day ? styles.checkboxActive : null]}>
-            {form.is_all_day ? <Text style={styles.checkboxMark}>✓</Text> : null}
-          </View>
-          <Text style={styles.toggleLabel}>{t("tasks.allDay")}</Text>
-        </Pressable>
-
-        <View style={styles.reminderBox}>
-          <Pressable onPress={toggleTaskReminder} style={styles.toggleRow}>
-            <View style={[styles.checkbox, form.reminder_enabled ? styles.checkboxActive : null]}>
-              {form.reminder_enabled ? <Text style={styles.checkboxMark}>{"\u2713"}</Text> : null}
-            </View>
-            <Text style={styles.toggleLabel}>{t("notifications.enableReminder")}</Text>
-          </Pressable>
-
-          {form.reminder_enabled ? (
-            <>
-              <View style={styles.formRow}>
-                <View style={styles.formColumn}>
-                  <AppInput
-                    label={t("notifications.reminderDate")}
-                    value={form.reminder_date}
-                    onChangeText={(value) =>
-                      setForm((current) => ({ ...current, reminder_date: value }))
-                    }
-                    placeholder="2026-06-01"
-                  />
+    return (
+      <FormModal
+        visible={formOpen}
+        title={modalTitle}
+        subtitle={t("tasks.formSubtitle")}
+        closeLabel={t("common.close")}
+        onClose={closeForm}
+      >
+        {!isMoveMode ? (
+          <>
+                <AppInput
+                  label={t("tasks.titleLabel")}
+                  value={form.title}
+                  onChangeText={(value) => setForm((current) => ({ ...current, title: value }))}
+                  placeholder={t("tasks.titlePlaceholder")}
+                  error={formError}
+                />
+                <AppInput
+                  label={t("tasks.descriptionLabel")}
+                  value={form.description}
+                  onChangeText={(value) => setForm((current) => ({ ...current, description: value }))}
+                  placeholder={t("tasks.descriptionPlaceholder")}
+                  multiline
+                  style={styles.multilineInput}
+                />
+          </>
+        ) : null}
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <DateField
+                      label={form.is_multi_day ? t("tasks.startDate") : t("tasks.date")}
+                      value={form.due_date}
+                      onChange={(value) =>
+                        setForm((current) => ({
+                          ...current,
+                          due_date: value,
+                          end_date:
+                            current.is_multi_day && value && (!current.end_date || current.end_date < value)
+                              ? value
+                              : current.end_date
+                        }))
+                      }
+                      placeholder={t("tasks.noDate")}
+                      clearLabel={t("common.clear")}
+                      todayLabel={t("common.today")}
+                      doneLabel={t("common.done")}
+                      previousLabel={t("calendar.previous")}
+                      nextLabel={t("calendar.next")}
+                      showClearButton={!isMoveMode}
+                    />
+                  </View>
+                  {form.is_multi_day ? (
+                    <View style={styles.formColumn}>
+                      <DateField
+                        label={t("tasks.endDate")}
+                        value={form.end_date}
+                        onChange={(value) => setForm((current) => ({ ...current, end_date: value }))}
+                        placeholder={form.due_date || t("tasks.noDate")}
+                        clearLabel={t("common.clear")}
+                        todayLabel={t("common.today")}
+                        doneLabel={t("common.done")}
+                        previousLabel={t("calendar.previous")}
+                        nextLabel={t("calendar.next")}
+                      />
+                    </View>
+                  ) : null}
                 </View>
-                <View style={styles.formColumn}>
-                  <AppInput
-                    label={t("notifications.reminderTime")}
-                    value={form.reminder_time}
-                    onChangeText={(value) =>
-                      setForm((current) => ({ ...current, reminder_time: value }))
-                    }
-                    placeholder="09:00"
-                  />
-                </View>
-              </View>
-              <Text style={styles.reminderHint}>
-                {settings.notifications_enabled
-                  ? notificationAvailability.available
-                    ? t("notifications.taskReminderHint")
-                    : t("notifications.webUnsupported")
-                  : t("notifications.disabledInSettings")}
-              </Text>
-            </>
-          ) : null}
 
-          {reminderMessage ? <Text style={styles.reminderStatus}>{reminderMessage}</Text> : null}
-        </View>
+                <Pressable
+                  onPress={() =>
+                    setForm((current) => {
+                      const enabling = !current.is_multi_day;
+                      return {
+                        ...current,
+                        is_multi_day: enabling,
+                        end_date: enabling ? current.end_date || current.due_date : ""
+                      };
+                    })
+                  }
+                  style={styles.toggleRow}
+                >
+                  <View style={[styles.checkbox, form.is_multi_day ? styles.checkboxActive : null]}>
+                    {form.is_multi_day ? <Text style={styles.checkboxMark}>{"\u2713"}</Text> : null}
+                  </View>
+                  <Text style={styles.toggleLabel}>{t("tasks.multipleDays")}</Text>
+                </Pressable>
 
-        <View style={styles.formRow}>
-          <View style={styles.formColumn}>
-            <AppInput
-              label={t("tasks.emojiLabel")}
-              value={form.emoji}
-              onChangeText={(value) => setForm((current) => ({ ...current, emoji: value }))}
-              placeholder="⚡"
-            />
-          </View>
-          <View style={styles.formColumn}>
-            <AppInput
-              label={t("tasks.colorLabel")}
-              value={form.color}
-              onChangeText={(value) => setForm((current) => ({ ...current, color: value }))}
-              placeholder="#2563EB"
-            />
-          </View>
-        </View>
-
-        <AppButton
-          title={editingTaskId ? t("tasks.saveChanges") : t("tasks.addTask")}
-          onPress={() => void handleSubmitTask()}
-          loading={submitting}
-        />
-      </View>
-
-      <View style={styles.filterRow}>
-        {filterOptions.map((option) => {
-          const isActive = activeFilter === option.key;
-          return (
-            <Pressable
-              key={option.key}
-              onPress={() => setActiveFilter(option.key)}
-              style={[styles.filterChip, isActive ? styles.filterChipActive : null]}
-            >
-              <Text style={[styles.filterChipText, isActive ? styles.filterChipTextActive : null]}>
-                {option.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {error ? (
-        <View style={styles.errorCard}>
-          <Text style={styles.error}>{error}</Text>
-          <AppButton title={t("common.retry")} variant="secondary" onPress={() => void loadTasks()} />
-        </View>
-      ) : null}
-      {loading ? <Text style={styles.muted}>{t("tasks.loading")}</Text> : null}
-
-      <View style={styles.list}>
-        {visibleSections.map((section) => (
-          <View key={section.key} style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{section.title}</Text>
-              <Text style={styles.sectionCount}>{section.items.length}</Text>
-            </View>
-            {section.items.length === 0 ? (
-              <View style={styles.emptyCard}>
-                <Text style={styles.muted}>{section.emptyMessage}</Text>
-                {activeFilter !== "all" ? (
-                  <Text style={styles.emptyHint}>{t("tasks.noTasksForSelectedFilter")}</Text>
+                {!form.is_all_day && form.due_date ? (
+                  <View style={styles.formRow}>
+                    <View style={styles.formColumn}>
+                      <TimeField
+                        label={t("tasks.startTime")}
+                        value={form.start_time}
+                        onChange={(value) => setForm((current) => ({ ...current, start_time: value }))}
+                        placeholder="09:00"
+                        clearLabel={t("common.clear")}
+                        doneLabel={t("common.done")}
+                      />
+                    </View>
+                    <View style={styles.formColumn}>
+                      <TimeField
+                        label={t("tasks.finishTime")}
+                        value={form.end_time}
+                        onChange={(value) => setForm((current) => ({ ...current, end_time: value }))}
+                        placeholder="10:00"
+                        clearLabel={t("common.clear")}
+                        doneLabel={t("common.done")}
+                      />
+                    </View>
+                  </View>
                 ) : null}
-              </View>
-            ) : (
-              section.items.map(renderTask)
-            )}
+
+                <Pressable
+                  onPress={() =>
+                    setForm((current) => ({
+                      ...current,
+                      is_all_day: !current.is_all_day,
+                      start_time: !current.is_all_day ? "" : current.start_time || "09:00",
+                      end_time: !current.is_all_day ? "" : current.end_time || "10:00"
+                    }))
+                  }
+                  style={styles.toggleRow}
+                >
+                  <View style={[styles.checkbox, form.is_all_day ? styles.checkboxActive : null]}>
+                    {form.is_all_day ? <Text style={styles.checkboxMark}>{"\u2713"}</Text> : null}
+                  </View>
+                  <Text style={styles.toggleLabel}>{t("tasks.allDay")}</Text>
+                </Pressable>
+
+                {formError ? <Text style={styles.error}>{formError}</Text> : null}
+
+        {!isMoveMode ? (
+          <>
+                <View style={styles.reminderBox}>
+                  <Pressable onPress={toggleTaskReminder} style={styles.toggleRow}>
+                    <View style={[styles.checkbox, form.reminder_enabled ? styles.checkboxActive : null]}>
+                      {form.reminder_enabled ? <Text style={styles.checkboxMark}>{"\u2713"}</Text> : null}
+                    </View>
+                    <Text style={styles.toggleLabel}>{t("notifications.enableReminder")}</Text>
+                  </Pressable>
+
+                  {form.reminder_enabled ? (
+                    <>
+                      <View style={styles.formRow}>
+                        <View style={styles.formColumn}>
+                          <DateField
+                            label={t("notifications.reminderDate")}
+                            value={form.reminder_date}
+                            onChange={(value) => setForm((current) => ({ ...current, reminder_date: value }))}
+                            placeholder={form.due_date || t("tasks.noDate")}
+                            clearLabel={t("common.clear")}
+                            todayLabel={t("common.today")}
+                            doneLabel={t("common.done")}
+                            previousLabel={t("calendar.previous")}
+                            nextLabel={t("calendar.next")}
+                          />
+                        </View>
+                        <View style={styles.formColumn}>
+                          <TimeField
+                            label={t("notifications.reminderTime")}
+                            value={form.reminder_time}
+                            onChange={(value) => setForm((current) => ({ ...current, reminder_time: value }))}
+                            placeholder="09:00"
+                            clearLabel={t("common.clear")}
+                            doneLabel={t("common.done")}
+                          />
+                        </View>
+                      </View>
+                      <Text style={styles.reminderHint}>
+                        {settings.notifications_enabled
+                          ? notificationAvailability.available
+                            ? t("notifications.taskReminderHint")
+                            : t("notifications.webUnsupported")
+                          : t("notifications.disabledInSettings")}
+                      </Text>
+                    </>
+                  ) : null}
+
+                  {reminderMessage ? <Text style={styles.reminderStatus}>{reminderMessage}</Text> : null}
+                </View>
+
+                <IconColorPicker
+                  icon={form.emoji}
+                  color={form.color}
+                  iconLabel={t("tasks.iconLabel")}
+                  colorLabel={t("tasks.colorLabel")}
+                  onIconChange={(value) => setForm((current) => ({ ...current, emoji: value }))}
+                  onColorChange={(value) => setForm((current) => ({ ...current, color: value }))}
+                />
+          </>
+        ) : null}
+
+                <AppButton
+                  title={formMode === "move" ? t("tasks.moveTask") : editingTaskId ? t("tasks.saveChanges") : t("tasks.addTask")}
+                  onPress={() => void handleSubmitTask()}
+                  loading={submitting}
+                />
+      </FormModal>
+    );
+  }
+
+  return (
+    <View style={styles.root}>
+      <ScreenContainer>
+        <View style={styles.headerRow}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.title}>{t("tasks.title")}</Text>
+            <Text style={styles.subtitle}>
+              {t("tasks.summary", {
+                total: taskCounts.total,
+                pending: taskCounts.pending,
+                completed: taskCounts.completed,
+                overdue: taskCounts.overdue
+              })}
+            </Text>
           </View>
-        ))}
-      </View>
-    </ScreenContainer>
+          <View style={styles.headerPill}>
+            <Text style={styles.headerPillText}>{t("tasks.focus")}</Text>
+          </View>
+        </View>
+
+        <View style={styles.selectedDateRow}>
+          <View style={styles.selectedDateField}>
+            <DateField
+              label={t("tasks.date")}
+              value={selectedDate ?? ""}
+              onChange={(value) => navigation.setParams({ selectedDate: value || undefined })}
+              placeholder={t("tasks.dateFilterAll")}
+              clearLabel={t("common.clear")}
+              todayLabel={t("common.today")}
+              doneLabel={t("common.done")}
+              previousLabel={t("calendar.previous")}
+              nextLabel={t("calendar.next")}
+            />
+          </View>
+          <View style={styles.dateButtonRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("calendar.previous")}
+              onPress={() => changeDateFilter(-1)}
+              style={({ pressed }) => [styles.dateArrowButton, pressed ? styles.dateArrowButtonPressed : null]}
+            >
+              <Text style={styles.dateArrowText}>{"<"}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("calendar.next")}
+              onPress={() => changeDateFilter(1)}
+              style={({ pressed }) => [styles.dateArrowButton, pressed ? styles.dateArrowButtonPressed : null]}
+            >
+              <Text style={styles.dateArrowText}>{">"}</Text>
+            </Pressable>
+            <Pressable onPress={() => navigation.setParams({ selectedDate: today })} style={styles.clearDateButton}>
+              <Text style={styles.clearDateText}>{t("common.today")}</Text>
+            </Pressable>
+            <Pressable onPress={() => navigation.setParams({ selectedDate: undefined })} style={styles.clearDateButton}>
+              <Text style={styles.clearDateText}>{t("tasks.allDates")}</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.filterRow}>
+          {[
+            { key: "pending" as const, label: t("tasks.filterPending"), value: pendingTasks.length },
+            { key: "overdue" as const, label: t("tasks.filterOverdue"), value: overdueTasks.length },
+            { key: "completed" as const, label: t("tasks.completedHistory"), value: completedTasks.length }
+          ].map((option) => {
+            const isActive = activeFilter === option.key;
+            return (
+              <Pressable
+                key={option.key}
+                onPress={() => setActiveFilter(option.key)}
+                style={[styles.filterChip, isActive ? styles.filterChipActive : null]}
+              >
+                <Text style={[styles.filterChipText, isActive ? styles.filterChipTextActive : null]}>
+                  {option.label} {option.value}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {error ? (
+          <View style={styles.errorCard}>
+            <Text style={styles.error}>{error}</Text>
+            <AppButton title={t("common.retry")} variant="secondary" onPress={() => void loadTasks()} />
+          </View>
+        ) : null}
+        {loading ? <Text style={styles.muted}>{t("tasks.loading")}</Text> : null}
+
+        <View style={styles.list}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              {activeFilter === "completed"
+                ? t("tasks.completedSection")
+                : activeFilter === "overdue"
+                  ? t("tasks.overdueSection")
+                  : t("tasks.pendingSection")}
+            </Text>
+            <Text style={styles.sectionCount}>{visibleTasks.length}</Text>
+          </View>
+          {visibleTasks.length === 0 ? (
+            <EmptyState
+              title={
+                activeFilter === "completed"
+                  ? t("tasks.noCompletedTasks")
+                  : activeFilter === "overdue"
+                    ? t("tasks.noOverdueTasks")
+                    : t("tasks.noPendingTasks")
+              }
+              message={activeFilter === "pending" ? t("tasks.createFirstTask") : t("tasks.noTasksForSelectedFilter")}
+              actionLabel={activeFilter === "pending" ? t("tasks.addTask") : undefined}
+              onAction={activeFilter === "pending" ? openNewTask : undefined}
+            />
+          ) : (
+            visibleTasks.map(renderTask)
+          )}
+        </View>
+      </ScreenContainer>
+
+      <FloatingActionButton label={t("tasks.newTask")} onPress={openNewTask} />
+      {renderFormModal()}
+    </View>
   );
 }
 
@@ -874,6 +1002,10 @@ function createStyles(
   spacing: ReturnType<typeof useAppTheme>["spacing"]
 ) {
   return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: colors.appBackground
+    },
     title: {
       fontSize: 28,
       fontWeight: "700",
@@ -882,13 +1014,17 @@ function createStyles(
     subtitle: {
       marginTop: spacing.xs,
       fontSize: 14,
-      color: colors.textSecondary
+      color: colors.textSecondary,
+      lineHeight: 20
     },
     headerRow: {
       flexDirection: "row",
       justifyContent: "space-between",
-      alignItems: "center",
+      alignItems: "flex-start",
       gap: spacing.md
+    },
+    headerCopy: {
+      flex: 1
     },
     headerPill: {
       borderRadius: 999,
@@ -903,104 +1039,68 @@ function createStyles(
       color: colors.primaryBlueDark,
       fontWeight: "700"
     },
+    selectedDateRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: spacing.sm
+    },
+    selectedDateField: {
+      flex: 1,
+      minWidth: 220
+    },
+    selectedDateText: {
+      flex: 1,
+      color: colors.textSecondary,
+      fontSize: 13,
+      fontWeight: "700"
+    },
+    clearDateButton: {
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.primaryBlueSoft,
+      backgroundColor: colors.primaryBlueUltraSoft,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 7
+    },
+    dateArrowButton: {
+      width: 34,
+      minHeight: 32,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.primaryBlueSoft,
+      backgroundColor: colors.primaryBlueUltraSoft,
+      alignItems: "center",
+      justifyContent: "center"
+    },
+    dateArrowButtonPressed: {
+      transform: [{ translateY: 1 }]
+    },
+    dateArrowText: {
+      color: colors.primaryBlueDark,
+      fontSize: 16,
+      fontWeight: "900"
+    },
+    dateButtonRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: "flex-end",
+      gap: spacing.xs
+    },
+    clearDateText: {
+      color: colors.primaryBlueDark,
+      fontSize: 12,
+      fontWeight: "800"
+    },
     sectionTitle: {
       fontSize: 18,
       fontWeight: "700",
       color: colors.textPrimary
-    },
-    formCard: {
-      backgroundColor: colors.surface,
-      borderRadius: 8,
-      padding: spacing.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
-      gap: spacing.md,
-      shadowColor: colors.textPrimary,
-      shadowOpacity: 0.04,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 1
-    },
-    formHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      gap: spacing.md
-    },
-    formRow: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: spacing.md
-    },
-    formColumn: {
-      flex: 1,
-      minWidth: 220
-    },
-    multilineInput: {
-      minHeight: 86,
-      paddingTop: spacing.md,
-      textAlignVertical: "top"
-    },
-    clearEditButton: {
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surfaceMuted,
-      paddingHorizontal: spacing.md,
-      paddingVertical: 8
-    },
-    clearEditButtonText: {
-      color: colors.textSecondary,
-      fontWeight: "700",
-      fontSize: 13
-    },
-    toggleRow: {
-      alignSelf: "flex-start",
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm
-    },
-    checkbox: {
-      width: 22,
-      height: 22,
-      borderRadius: 6,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      alignItems: "center",
-      justifyContent: "center"
-    },
-    checkboxActive: {
-      backgroundColor: colors.primaryBlue,
-      borderColor: colors.primaryBlue
-    },
-    checkboxMark: {
-      color: colors.textOnPrimary,
-      fontSize: 13,
-      fontWeight: "800"
-    },
-    toggleLabel: {
-      color: colors.textPrimary,
-      fontSize: 14,
-      fontWeight: "600"
-    },
-    reminderBox: {
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surfaceMuted,
-      padding: spacing.md,
-      gap: spacing.md
-    },
-    reminderHint: {
-      color: colors.textSecondary,
-      fontSize: 13,
-      lineHeight: 19
-    },
-    reminderStatus: {
-      color: colors.primaryBlueDark,
-      fontSize: 13,
-      fontWeight: "700"
     },
     filterRow: {
       flexDirection: "row",
@@ -1028,10 +1128,7 @@ function createStyles(
       color: colors.primaryBlueDark
     },
     list: {
-      gap: spacing.lg
-    },
-    section: {
-      gap: spacing.sm
+      gap: spacing.md
     },
     sectionHeader: {
       flexDirection: "row",
@@ -1064,32 +1161,18 @@ function createStyles(
       backgroundColor: colors.dangerSoft
     },
     itemCardCompleted: {
-      opacity: 0.86
-    },
-    itemCardCancelled: {
-      opacity: 0.72
+      opacity: 0.82
     },
     itemHeader: {
       flexDirection: "row",
-      justifyContent: "space-between",
+      alignItems: "flex-start",
       gap: spacing.md
     },
     itemText: {
       flex: 1,
       gap: spacing.xs
     },
-    titleRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm
-    },
-    colorDot: {
-      width: 10,
-      height: 10,
-      borderRadius: 999
-    },
     itemTitle: {
-      flex: 1,
       fontSize: 16,
       fontWeight: "700",
       color: colors.textPrimary
@@ -1128,10 +1211,6 @@ function createStyles(
       color: colors.textSecondary,
       backgroundColor: colors.surfaceMuted
     },
-    statusCancelled: {
-      color: colors.textMuted,
-      backgroundColor: colors.surfaceMuted
-    },
     statusOverdue: {
       color: colors.danger,
       backgroundColor: colors.surface
@@ -1142,7 +1221,7 @@ function createStyles(
       gap: spacing.sm
     },
     actionButton: {
-      minHeight: 36,
+      minHeight: 38,
       borderRadius: 8,
       borderWidth: 1,
       alignItems: "center",
@@ -1183,17 +1262,111 @@ function createStyles(
     actionPressed: {
       transform: [{ translateY: 1 }]
     },
-    emptyCard: {
-      borderRadius: 8,
+    modalRoot: {
+      flex: 1,
+      justifyContent: Platform.OS === "web" ? "center" : "flex-end",
+      backgroundColor: Platform.OS === "web" ? "rgba(15, 23, 42, 0.45)" : colors.appBackground
+    },
+    modalKeyboard: {
+      width: "100%",
+      maxWidth: Platform.OS === "web" ? 680 : undefined,
+      alignSelf: "center",
+      flex: Platform.OS === "web" ? 0 : 1
+    },
+    modalPanel: {
+      flex: Platform.OS === "web" ? 0 : 1,
+      maxHeight: Platform.OS === "web" ? "92%" : "100%",
+      backgroundColor: colors.surface,
+      borderRadius: Platform.OS === "web" ? 8 : 0,
+      padding: spacing.lg,
+      gap: spacing.md
+    },
+    modalHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      gap: spacing.md
+    },
+    modalTitleWrap: {
+      flex: 1,
+      gap: spacing.xs
+    },
+    modalTitle: {
+      color: colors.textPrimary,
+      fontSize: 22,
+      fontWeight: "800"
+    },
+    modalSubtitle: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      lineHeight: 18
+    },
+    formContent: {
+      gap: spacing.md,
+      paddingBottom: spacing.xl
+    },
+    formRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.md
+    },
+    formColumn: {
+      flex: 1,
+      minWidth: 220
+    },
+    multilineInput: {
+      minHeight: 86,
+      paddingTop: spacing.md,
+      textAlignVertical: "top"
+    },
+    toggleRow: {
+      alignSelf: "flex-start",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      minHeight: 44
+    },
+    checkbox: {
+      width: 24,
+      height: 24,
+      borderRadius: 6,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
-      padding: spacing.md,
-      gap: spacing.xs
+      alignItems: "center",
+      justifyContent: "center"
     },
-    emptyHint: {
-      color: colors.textMuted,
-      fontSize: 13
+    checkboxActive: {
+      backgroundColor: colors.primaryBlue,
+      borderColor: colors.primaryBlue
+    },
+    checkboxMark: {
+      color: colors.textOnPrimary,
+      fontSize: 13,
+      fontWeight: "800"
+    },
+    toggleLabel: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: "600"
+    },
+    reminderBox: {
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      padding: spacing.md,
+      gap: spacing.md
+    },
+    reminderHint: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      lineHeight: 19
+    },
+    reminderStatus: {
+      color: colors.primaryBlueDark,
+      fontSize: 13,
+      fontWeight: "700"
     },
     errorCard: {
       borderRadius: 8,

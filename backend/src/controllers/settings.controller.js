@@ -8,6 +8,7 @@ const {
 const ALLOWED_THEMES = ["light", "dark", "system"];
 const ALLOWED_VIEWS = ["dashboard", "tasks", "habits", "calendar", "account"];
 const ALLOWED_WEEK_STARTS = ["monday", "sunday"];
+const ALLOWED_TIME_FORMATS = ["12h", "24h"];
 
 async function ensureUserSettings(userId, runner = query) {
   const existing = await runner.query(
@@ -18,6 +19,7 @@ async function ensureUserSettings(userId, runner = query) {
        notifications_enabled,
        default_view,
        week_starts_on,
+       COALESCE(time_format, '12h') AS time_format,
        created_at,
        updated_at
      FROM user_settings
@@ -39,8 +41,8 @@ async function ensureUserSettings(userId, runner = query) {
        week_starts_on,
        created_at,
        updated_at
-     ) VALUES ($1, 'light', true, 'dashboard', 'monday', NOW(), NOW())
-     RETURNING setting_id, user_id, theme, notifications_enabled, default_view, week_starts_on, created_at, updated_at`,
+     ) VALUES ($1, 'system', true, 'dashboard', 'monday', NOW(), NOW())
+     RETURNING setting_id, user_id, theme, notifications_enabled, default_view, week_starts_on, COALESCE(time_format, '12h') AS time_format, created_at, updated_at`,
     [userId]
   );
 
@@ -68,6 +70,7 @@ async function getSettings(req, res, next) {
         notifications_enabled: settings.notifications_enabled,
         default_view: settings.default_view,
         week_starts_on: settings.week_starts_on,
+        time_format: settings.time_format || "12h",
         timezone: userResult.rows[0].timezone,
         language: userResult.rows[0].language
       }
@@ -86,6 +89,7 @@ async function updateSettings(req, res, next) {
       notifications_enabled,
       default_view,
       week_starts_on,
+      time_format,
       timezone,
       language
     } = req.body;
@@ -109,6 +113,10 @@ async function updateSettings(req, res, next) {
       throw createAppError(400, "Invalid week_starts_on");
     }
 
+    if (time_format && !validateEnum(time_format, ALLOWED_TIME_FORMATS)) {
+      throw createAppError(400, "Invalid time_format");
+    }
+
     if (timezone !== undefined && typeof timezone !== "string") {
       throw createAppError(400, "timezone must be a string");
     }
@@ -129,8 +137,9 @@ async function updateSettings(req, res, next) {
          notifications_enabled = $2,
          default_view = $3,
          week_starts_on = $4,
+         time_format = $5,
          updated_at = NOW()
-       WHERE user_id = $5`,
+       WHERE user_id = $6`,
       [
         theme || currentSettings.theme,
         notifications_enabled !== undefined
@@ -138,6 +147,7 @@ async function updateSettings(req, res, next) {
           : currentSettings.notifications_enabled,
         default_view || currentSettings.default_view,
         week_starts_on || currentSettings.week_starts_on,
+        time_format || currentSettings.time_format || "12h",
         req.user.user_id
       ]
     );
@@ -186,6 +196,7 @@ async function updateSettings(req, res, next) {
         notifications_enabled: updatedSettings.notifications_enabled,
         default_view: updatedSettings.default_view,
         week_starts_on: updatedSettings.week_starts_on,
+        time_format: updatedSettings.time_format || "12h",
         timezone: updatedUserResult.rows[0].timezone,
         language: updatedUserResult.rows[0].language
       }

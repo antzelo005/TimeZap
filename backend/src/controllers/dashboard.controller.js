@@ -1,22 +1,5 @@
 const { query } = require("../config/db");
-const { getTodayDateString } = require("../utils/validators");
-
-function calculateStreakFromDates(dateStrings) {
-  const dates = new Set(dateStrings);
-  const today = new Date();
-  const todayString = today.toISOString().slice(0, 10);
-  const yesterday = new Date(today);
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-  let cursor = dates.has(todayString) ? new Date(today) : yesterday;
-  let streak = 0;
-
-  while (dates.has(cursor.toISOString().slice(0, 10))) {
-    streak += 1;
-    cursor.setUTCDate(cursor.getUTCDate() - 1);
-  }
-
-  return streak;
-}
+const { calculateCurrentDailyStreak, getTodayDateString } = require("../utils/validators");
 
 async function getTodayDashboard(req, res, next) {
   try {
@@ -28,7 +11,10 @@ async function getTodayDashboard(req, res, next) {
          title,
          description,
          to_char(due_date, 'YYYY-MM-DD') AS due_date,
+         to_char(end_date, 'YYYY-MM-DD') AS end_date,
          to_char(due_time, 'HH24:MI:SS') AS due_time,
+         to_char(COALESCE(start_time, due_time), 'HH24:MI:SS') AS start_time,
+         to_char(end_time, 'HH24:MI:SS') AS end_time,
          status,
          is_all_day,
          completed_at,
@@ -37,8 +23,11 @@ async function getTodayDashboard(req, res, next) {
          created_at,
          updated_at
        FROM tasks
-       WHERE user_id = $1 AND due_date = $2
-       ORDER BY due_time ASC NULLS LAST, created_at DESC`,
+       WHERE user_id = $1
+         AND due_date <= $2
+         AND COALESCE(end_date, due_date) >= $2
+         AND status != 'cancelled'
+       ORDER BY COALESCE(start_time, due_time) ASC NULLS LAST, created_at DESC`,
       [req.user.user_id, today]
     );
 
@@ -48,6 +37,9 @@ async function getTodayDashboard(req, res, next) {
          h.title,
          h.description,
          to_char(h.start_date, 'YYYY-MM-DD') AS start_date,
+         to_char(h.end_date, 'YYYY-MM-DD') AS end_date,
+         to_char(h.start_time, 'HH24:MI:SS') AS start_time,
+         to_char(h.end_time, 'HH24:MI:SS') AS end_time,
          h.status,
          h.emoji,
          h.color,
@@ -70,11 +62,7 @@ async function getTodayDashboard(req, res, next) {
 
     const completedHabitIds = new Set(habitLogsToday.rows.map((row) => row.habit_id));
     const habitsForToday = habitsResult.rows.filter((habit) => {
-      if (habit.recurrence_type === "specific_weekdays") {
-        return true;
-      }
-
-      return habit.start_date <= today;
+      return habit.start_date <= today && (!habit.end_date || habit.end_date >= today);
     });
 
     const habitItems = habitsForToday.map((habit) => ({
@@ -83,10 +71,27 @@ async function getTodayDashboard(req, res, next) {
     }));
 
     const streaksResult = await query(
-      `SELECT habit_id, to_char(log_date, 'YYYY-MM-DD') AS log_date
-       FROM habit_logs
-       WHERE user_id = $1 AND status = 'completed'
-       ORDER BY habit_id ASC, log_date DESC`,
+      `SELECT hl.habit_id, to_char(hl.log_date, 'YYYY-MM-DD') AS log_date
+       FROM habit_logs hl
+       INNER JOIN habits h
+         ON h.habit_id = hl.habit_id AND h.user_id = hl.user_id
+       LEFT JOIN habit_rules hr
+         ON hr.habit_id = h.habit_id AND hr.is_active = true
+       WHERE hl.user_id = $1
+         AND hl.status = 'completed'
+         AND COALESCE(hr.recurrence_type, 'daily') IN ('daily', 'specific_weekdays')
+         AND h.start_date <= hl.log_date
+         AND (h.end_date IS NULL OR h.end_date >= hl.log_date)
+         AND (
+           COALESCE(hr.recurrence_type, 'daily') = 'daily'
+           OR EXISTS (
+             SELECT 1
+             FROM habit_rule_days hrd
+             WHERE hrd.rule_id = hr.rule_id
+               AND hrd.day_of_week = EXTRACT(DOW FROM hl.log_date)::int
+           )
+         )
+       ORDER BY hl.habit_id ASC, hl.log_date DESC`,
       [req.user.user_id]
     );
 
@@ -100,7 +105,7 @@ async function getTodayDashboard(req, res, next) {
 
     let maxStreak = 0;
     for (const dates of byHabit.values()) {
-      maxStreak = Math.max(maxStreak, calculateStreakFromDates(dates));
+      maxStreak = Math.max(maxStreak, calculateCurrentDailyStreak(dates, today));
     }
 
     res.status(200).json({

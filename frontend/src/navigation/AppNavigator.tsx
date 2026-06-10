@@ -1,9 +1,14 @@
 import React from "react";
-import { Text, View } from "react-native";
+import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import NotificationBell from "../components/NotificationBell";
+import { getDashboardToday } from "../api/dashboard.api";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
+import { subscribeDashboardChanged } from "../services/appEvents";
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import DashboardScreen from "../screens/DashboardScreen";
@@ -15,6 +20,7 @@ import { useAppTheme } from "../theme/useAppTheme";
 import type { AuthStackParamList, MainTabParamList } from "../types/navigation";
 import { useTranslation } from "../i18n";
 import type { DefaultView } from "../types/settings";
+import type { DashboardTodayResponse } from "../types/dashboard";
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const MainTabs = createBottomTabNavigator<MainTabParamList>();
@@ -40,7 +46,9 @@ function TitleWithZap({ title }: TitleWithZapProps) {
           borderColor: colors.zapYellow
         }}
       >
-        <Text style={{ color: colors.primaryBlueDark, fontSize: 12, fontWeight: "800" }}>⚡</Text>
+        <Text style={{ color: colors.primaryBlueDark, fontSize: 12, fontWeight: "800" }}>
+          {"\u26A1"}
+        </Text>
       </View>
       <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: "700" }}>{title}</Text>
     </View>
@@ -53,7 +61,73 @@ interface TabIconProps {
 }
 
 function TabIcon({ icon, color }: TabIconProps) {
-  return <Text style={{ fontSize: 16, color }}>{icon}</Text>;
+  return <Text style={{ fontSize: 18, color, fontWeight: "800" }}>{icon}</Text>;
+}
+
+function HeaderStatus() {
+  const { width } = useWindowDimensions();
+  const { colors, spacing } = useAppTheme();
+  const { t } = useTranslation();
+  const styles = React.useMemo(() => createHeaderStyles(colors, spacing), [colors, spacing]);
+  const [today, setToday] = React.useState<DashboardTodayResponse | null>(null);
+  const isCompact = width < 390;
+
+  const loadToday = React.useCallback(async () => {
+    try {
+      const response = await getDashboardToday();
+      setToday(response);
+    } catch {
+      setToday(null);
+    }
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void loadToday();
+    }, [loadToday])
+  );
+
+  React.useEffect(() => subscribeDashboardChanged(() => void loadToday()), [loadToday]);
+
+  const streak = today?.current_streak ?? 0;
+  const tasksLabel = today
+    ? isCompact
+      ? `${today.tasks.completed}/${today.tasks.total}`
+      : t("dashboard.topTasks", { completed: today.tasks.completed, total: today.tasks.total })
+    : isCompact
+      ? "-/-"
+      : t("dashboard.topTasks", { completed: 0, total: 0 });
+  const habitsLabel = today
+    ? isCompact
+      ? `${today.habits.completed}/${today.habits.total}`
+      : t("dashboard.topHabits", { completed: today.habits.completed, total: today.habits.total })
+    : isCompact
+      ? "-/-"
+      : t("dashboard.topHabits", { completed: 0, total: 0 });
+
+  return (
+    <View style={styles.row}>
+      <View style={styles.summaryWrap}>
+        <Text style={styles.summaryChip}>
+          {isCompact ? "\u2713 " : ""}
+          {tasksLabel}
+        </Text>
+        <Text style={styles.summaryChip}>
+          {isCompact ? "\u21BB " : ""}
+          {habitsLabel}
+        </Text>
+      </View>
+      <View style={[styles.streakBadge, streak > 0 ? styles.streakBadgeActive : styles.streakBadgeInactive]}>
+        <Text style={[styles.streakIcon, streak > 0 ? styles.streakIconActive : styles.streakIconInactive]}>
+          {"\u26A1"}
+        </Text>
+        <Text style={[styles.streakCount, streak > 0 ? styles.streakCountActive : styles.streakCountInactive]}>
+          {streak}
+        </Text>
+      </View>
+      <NotificationBell />
+    </View>
+  );
 }
 
 function AuthNavigator() {
@@ -93,6 +167,7 @@ function MainNavigator() {
   const { colors } = useAppTheme();
   const { t } = useTranslation();
   const { settings } = useSettings();
+  const insets = useSafeAreaInsets();
 
   const initialRouteMap: Record<DefaultView, keyof MainTabParamList> = {
     dashboard: "Dashboard",
@@ -114,27 +189,31 @@ function MainNavigator() {
           color: colors.textPrimary,
           fontWeight: "700"
         },
+        headerRight: () => <HeaderStatus />,
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
-          height: 62,
-          paddingBottom: 8,
-          paddingTop: 8
+          height: 76 + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 10),
+          paddingTop: 10
         },
         tabBarActiveTintColor: colors.primaryBlue,
         tabBarInactiveTintColor: colors.textSecondary,
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: "600"
+          fontSize: 13,
+          fontWeight: "700",
+          paddingBottom: 2
         },
         tabBarItemStyle: {
-          borderRadius: 12,
+          minHeight: 56,
+          borderRadius: 8,
           marginHorizontal: 4,
-          marginVertical: 4
+          marginVertical: 3
         },
         tabBarIconStyle: {
-          marginBottom: 2
-        }
+          marginBottom: 1
+        },
+        tabBarHideOnKeyboard: true
       }}
     >
       <MainTabs.Screen
@@ -143,7 +222,7 @@ function MainNavigator() {
         options={{
           title: t("tabs.dashboard"),
           tabBarLabel: t("tabs.dashboard"),
-          tabBarIcon: ({ color }) => <TabIcon icon="⚡" color={color} />
+          tabBarIcon: ({ color }) => <TabIcon icon={"\u26A1"} color={color} />
         }}
       />
       <MainTabs.Screen
@@ -152,7 +231,7 @@ function MainNavigator() {
         options={{
           title: t("tabs.tasks"),
           tabBarLabel: t("tabs.tasks"),
-          tabBarIcon: ({ color }) => <TabIcon icon="✓" color={color} />
+          tabBarIcon: ({ color }) => <TabIcon icon={"\u2713"} color={color} />
         }}
       />
       <MainTabs.Screen
@@ -161,7 +240,7 @@ function MainNavigator() {
         options={{
           title: t("tabs.habits"),
           tabBarLabel: t("tabs.habits"),
-          tabBarIcon: ({ color }) => <TabIcon icon="🔁" color={color} />
+          tabBarIcon: ({ color }) => <TabIcon icon={"\u21BB"} color={color} />
         }}
       />
       <MainTabs.Screen
@@ -170,7 +249,7 @@ function MainNavigator() {
         options={{
           title: t("tabs.calendar"),
           tabBarLabel: t("tabs.calendar"),
-          tabBarIcon: ({ color }) => <TabIcon icon="📅" color={color} />
+          tabBarIcon: ({ color }) => <TabIcon icon={"\u25A3"} color={color} />
         }}
       />
       <MainTabs.Screen
@@ -179,7 +258,7 @@ function MainNavigator() {
         options={{
           title: t("tabs.account"),
           tabBarLabel: t("tabs.account"),
-          tabBarIcon: ({ color }) => <TabIcon icon="👤" color={color} />
+          tabBarIcon: ({ color }) => <TabIcon icon={"\u25CF"} color={color} />
         }}
       />
     </MainTabs.Navigator>
@@ -189,4 +268,75 @@ function MainNavigator() {
 export default function AppNavigator() {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? <MainNavigator /> : <AuthNavigator />;
+}
+
+function createHeaderStyles(
+  colors: ReturnType<typeof useAppTheme>["colors"],
+  spacing: ReturnType<typeof useAppTheme>["spacing"]
+) {
+  return StyleSheet.create({
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      gap: 6
+    },
+    summaryWrap: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4
+    },
+    summaryChip: {
+      maxWidth: 96,
+      borderRadius: 999,
+      overflow: "hidden",
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      color: colors.textSecondary,
+      fontSize: 11,
+      fontWeight: "800",
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 5
+    },
+    streakBadge: {
+      minWidth: 42,
+      height: 34,
+      borderRadius: 999,
+      borderWidth: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 4,
+      paddingHorizontal: spacing.sm
+    },
+    streakBadgeActive: {
+      backgroundColor: colors.zapYellowSoft,
+      borderColor: colors.zapYellow
+    },
+    streakBadgeInactive: {
+      backgroundColor: colors.surfaceMuted,
+      borderColor: colors.border
+    },
+    streakIcon: {
+      fontSize: 13,
+      fontWeight: "900"
+    },
+    streakIconActive: {
+      color: colors.warning
+    },
+    streakIconInactive: {
+      color: colors.textMuted
+    },
+    streakCount: {
+      fontSize: 13,
+      fontWeight: "900"
+    },
+    streakCountActive: {
+      color: colors.primaryBlueDark
+    },
+    streakCountInactive: {
+      color: colors.textSecondary
+    }
+  });
 }

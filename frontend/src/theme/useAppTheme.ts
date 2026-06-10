@@ -5,7 +5,7 @@ import { getThemeColors, type ResolvedTheme } from "./theme";
 import type { ThemeMode } from "../types/settings";
 
 function normalizeThemeMode(theme: string | undefined): ThemeMode {
-  return theme === "dark" || theme === "system" ? theme : "light";
+  return theme === "light" || theme === "dark" || theme === "system" ? theme : "system";
 }
 
 export function useAppTheme() {

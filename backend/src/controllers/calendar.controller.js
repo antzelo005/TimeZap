@@ -27,15 +27,19 @@ async function getMonthView(req, res, next) {
 
     const tasksResult = await query(
       `SELECT
-         to_char(due_date, 'YYYY-MM-DD') AS entry_date,
+         to_char(entry_date, 'YYYY-MM-DD') AS entry_date,
          task_id,
          title,
-         status
+         status,
+         to_char(COALESCE(start_time, due_time), 'HH24:MI:SS') AS start_time,
+         to_char(end_time, 'HH24:MI:SS') AS end_time
        FROM tasks
+       CROSS JOIN LATERAL generate_series(due_date, COALESCE(end_date, due_date), interval '1 day') AS range_days(entry_date)
        WHERE user_id = $1
          AND due_date IS NOT NULL
-         AND to_char(due_date, 'YYYY-MM') = $2
-       ORDER BY due_date ASC`,
+         AND to_char(entry_date, 'YYYY-MM') = $2
+         AND status != 'cancelled'
+       ORDER BY entry_date ASC, COALESCE(start_time, due_time) ASC NULLS LAST`,
       [req.user.user_id, monthPrefix]
     );
 
@@ -65,7 +69,9 @@ async function getMonthView(req, res, next) {
       grouped[task.entry_date].tasks.push({
         task_id: task.task_id,
         title: task.title,
-        status: task.status
+        status: task.status,
+        start_time: task.start_time,
+        end_time: task.end_time
       });
     }
 
@@ -104,15 +110,21 @@ async function getDayView(req, res, next) {
          title,
          description,
          to_char(due_date, 'YYYY-MM-DD') AS due_date,
+         to_char(end_date, 'YYYY-MM-DD') AS end_date,
          to_char(due_time, 'HH24:MI:SS') AS due_time,
+         to_char(COALESCE(start_time, due_time), 'HH24:MI:SS') AS start_time,
+         to_char(end_time, 'HH24:MI:SS') AS end_time,
          status,
          is_all_day,
          completed_at,
          emoji,
          color
        FROM tasks
-       WHERE user_id = $1 AND due_date = $2
-       ORDER BY due_time ASC NULLS LAST, created_at DESC`,
+       WHERE user_id = $1
+         AND due_date <= $2
+         AND COALESCE(end_date, due_date) >= $2
+         AND status != 'cancelled'
+       ORDER BY COALESCE(start_time, due_time) ASC NULLS LAST, created_at DESC`,
       [req.user.user_id, date]
     );
 
@@ -125,6 +137,9 @@ async function getDayView(req, res, next) {
          h.emoji,
          h.color,
          to_char(h.start_date, 'YYYY-MM-DD') AS start_date,
+         to_char(h.end_date, 'YYYY-MM-DD') AS end_date,
+         to_char(h.start_time, 'HH24:MI:SS') AS start_time,
+         to_char(h.end_time, 'HH24:MI:SS') AS end_time,
          hr.recurrence_type,
          hr.target_count
        FROM habits h
@@ -144,7 +159,7 @@ async function getDayView(req, res, next) {
 
     const loggedHabitIds = new Map(logsResult.rows.map((row) => [row.habit_id, row]));
     const expectedHabits = habitsResult.rows
-      .filter((habit) => habit.start_date <= date)
+      .filter((habit) => habit.start_date <= date && (!habit.end_date || habit.end_date >= date))
       .map((habit) => ({
         ...habit,
         completed: loggedHabitIds.has(habit.habit_id),

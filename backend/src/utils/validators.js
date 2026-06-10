@@ -51,10 +51,39 @@ function parseId(value, fieldName) {
 }
 
 function getTodayDateString() {
-  return new Date().toISOString().slice(0, 10);
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function shiftDateString(value, dayOffset) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + dayOffset);
+
+  const shiftedYear = date.getFullYear();
+  const shiftedMonth = String(date.getMonth() + 1).padStart(2, "0");
+  const shiftedDay = String(date.getDate()).padStart(2, "0");
+  return `${shiftedYear}-${shiftedMonth}-${shiftedDay}`;
+}
+
+function calculateCurrentDailyStreak(dateStrings, todayString = getTodayDateString()) {
+  const completedDates = new Set(dateStrings);
+  let cursor = completedDates.has(todayString) ? todayString : shiftDateString(todayString, -1);
+  let streak = 0;
+
+  while (completedDates.has(cursor)) {
+    streak += 1;
+    cursor = shiftDateString(cursor, -1);
+  }
+
+  return streak;
 }
 
 module.exports = {
+  calculateCurrentDailyStreak,
   createAppError,
   getTodayDateString,
   isNonEmptyString,

@@ -1,7 +1,6 @@
 const { query } = require("../config/db");
 const {
   createAppError,
-  getTodayDateString,
   isNonEmptyString,
   parseId,
   validateISODate,
@@ -9,6 +8,7 @@ const {
 } = require("../utils/validators");
 
 const ALLOWED_TASK_STATUSES = ["pending", "completed", "cancelled"];
+const TASK_GRACE_PERIOD_MINUTES = 60;
 
 const TASK_SELECT = `
   SELECT
@@ -17,7 +17,10 @@ const TASK_SELECT = `
     title,
     description,
     to_char(due_date, 'YYYY-MM-DD') AS due_date,
+    to_char(end_date, 'YYYY-MM-DD') AS end_date,
     to_char(due_time, 'HH24:MI:SS') AS due_time,
+    to_char(COALESCE(start_time, due_time), 'HH24:MI:SS') AS start_time,
+    to_char(end_time, 'HH24:MI:SS') AS end_time,
     status,
     is_all_day,
     completed_at,
@@ -28,9 +31,44 @@ const TASK_SELECT = `
   FROM tasks
 `;
 
+function parseLocalTaskDate(dateString) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateString || ""))) {
+    return null;
+  }
+
+  const [year, month, day] = dateString.split("-").map(Number);
+  return { year, month, day };
+}
+
+function isTaskOverdue(task, now = new Date()) {
+  if (!task.due_date || task.status !== "pending") {
+    return false;
+  }
+
+  const effectiveDate = task.end_date || task.due_date;
+  const dateParts = parseLocalTaskDate(effectiveDate);
+  if (!dateParts) {
+    return false;
+  }
+
+  const scheduledTime = task.end_date ? task.end_time || task.start_time || task.due_time : task.start_time || task.due_time;
+  if (task.is_all_day || !scheduledTime) {
+    const nextDayStart = new Date(dateParts.year, dateParts.month - 1, dateParts.day + 1);
+    return now.getTime() >= nextDayStart.getTime();
+  }
+
+  const [hour, minute] = scheduledTime.split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return false;
+  }
+
+  const scheduledAt = new Date(dateParts.year, dateParts.month - 1, dateParts.day, hour, minute, 0, 0);
+  const graceDeadline = new Date(scheduledAt.getTime() + TASK_GRACE_PERIOD_MINUTES * 60 * 1000);
+  return now.getTime() >= graceDeadline.getTime();
+}
+
 function mapTask(task) {
-  const today = getTodayDateString();
-  const isOverdue = Boolean(task.due_date && task.status === "pending" && task.due_date < today);
+  const isOverdue = isTaskOverdue(task);
 
   return {
     ...task,
@@ -59,7 +97,7 @@ async function getTasks(req, res, next) {
       }
 
       values.push(date);
-      conditions.push(`due_date = $${values.length}`);
+      conditions.push(`due_date <= $${values.length} AND COALESCE(end_date, due_date) >= $${values.length}`);
     }
 
     if (from) {
@@ -68,7 +106,7 @@ async function getTasks(req, res, next) {
       }
 
       values.push(from);
-      conditions.push(`due_date >= $${values.length}`);
+      conditions.push(`COALESCE(end_date, due_date) >= $${values.length}`);
     }
 
     if (to) {
@@ -83,7 +121,7 @@ async function getTasks(req, res, next) {
     const result = await query(
       `${TASK_SELECT}
        WHERE ${conditions.join(" AND ")}
-       ORDER BY due_date ASC NULLS LAST, due_time ASC NULLS LAST, created_at DESC`,
+       ORDER BY due_date ASC NULLS LAST, COALESCE(start_time, due_time) ASC NULLS LAST, created_at DESC`,
       values
     );
 
@@ -119,7 +157,9 @@ async function getTaskById(req, res, next) {
 
 async function createTask(req, res, next) {
   try {
-    const { title, description, due_date, due_time, is_all_day, emoji, color } = req.body;
+    const { title, description, due_date, end_date, due_time, start_time, end_time, is_all_day, emoji, color } = req.body;
+    const resolvedStartTime = start_time || due_time || null;
+    const resolvedEndDate = end_date || null;
 
     if (!isNonEmptyString(title)) {
       throw createAppError(400, "Title is required");
@@ -129,8 +169,20 @@ async function createTask(req, res, next) {
       throw createAppError(400, "due_date must be a valid ISO date");
     }
 
-    if (due_time && !validateTime(due_time)) {
-      throw createAppError(400, "due_time must be a valid time");
+    if (resolvedEndDate && !validateISODate(resolvedEndDate)) {
+      throw createAppError(400, "end_date must be a valid ISO date");
+    }
+
+    if (resolvedEndDate && due_date && resolvedEndDate < due_date) {
+      throw createAppError(400, "end_date must be on or after due_date");
+    }
+
+    if (resolvedStartTime && !validateTime(resolvedStartTime)) {
+      throw createAppError(400, "start_time must be a valid time");
+    }
+
+    if (end_time && !validateTime(end_time)) {
+      throw createAppError(400, "end_time must be a valid time");
     }
 
     const result = await query(
@@ -139,7 +191,10 @@ async function createTask(req, res, next) {
          title,
          description,
          due_date,
+         end_date,
          due_time,
+         start_time,
+         end_time,
          status,
          is_all_day,
          completed_at,
@@ -147,14 +202,17 @@ async function createTask(req, res, next) {
          color,
          created_at,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, NULL, $7, $8, NOW(), NOW())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, NULL, $10, $11, NOW(), NOW())
        RETURNING task_id`,
       [
         req.user.user_id,
         title.trim(),
         description || null,
         due_date || null,
-        due_time || null,
+        resolvedEndDate,
+        resolvedStartTime,
+        resolvedStartTime,
+        end_time || null,
         Boolean(is_all_day),
         emoji || null,
         color || null
@@ -180,7 +238,9 @@ async function createTask(req, res, next) {
 async function updateTask(req, res, next) {
   try {
     const taskId = parseId(req.params.id, "Task ID");
-    const { title, description, due_date, due_time, is_all_day, emoji, color } = req.body;
+    const { title, description, due_date, end_date, due_time, start_time, end_time, is_all_day, emoji, color } = req.body;
+    const resolvedStartTime = start_time || due_time || null;
+    const resolvedEndDate = end_date || null;
 
     if (!isNonEmptyString(title)) {
       throw createAppError(400, "Title is required");
@@ -190,8 +250,20 @@ async function updateTask(req, res, next) {
       throw createAppError(400, "due_date must be a valid ISO date");
     }
 
-    if (due_time && !validateTime(due_time)) {
-      throw createAppError(400, "due_time must be a valid time");
+    if (resolvedEndDate && !validateISODate(resolvedEndDate)) {
+      throw createAppError(400, "end_date must be a valid ISO date");
+    }
+
+    if (resolvedEndDate && due_date && resolvedEndDate < due_date) {
+      throw createAppError(400, "end_date must be on or after due_date");
+    }
+
+    if (resolvedStartTime && !validateTime(resolvedStartTime)) {
+      throw createAppError(400, "start_time must be a valid time");
+    }
+
+    if (end_time && !validateTime(end_time)) {
+      throw createAppError(400, "end_time must be a valid time");
     }
 
     const result = await query(
@@ -200,18 +272,24 @@ async function updateTask(req, res, next) {
          title = $1,
          description = $2,
          due_date = $3,
-         due_time = $4,
-         is_all_day = $5,
-         emoji = $6,
-         color = $7,
+         end_date = $4,
+         due_time = $5,
+         start_time = $6,
+         end_time = $7,
+         is_all_day = $8,
+         emoji = $9,
+         color = $10,
          updated_at = NOW()
-       WHERE task_id = $8 AND user_id = $9
+       WHERE task_id = $11 AND user_id = $12
        RETURNING task_id`,
       [
         title.trim(),
         description || null,
         due_date || null,
-        due_time || null,
+        resolvedEndDate,
+        resolvedStartTime,
+        resolvedStartTime,
+        end_time || null,
         Boolean(is_all_day),
         emoji || null,
         color || null,

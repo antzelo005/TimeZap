@@ -2,12 +2,14 @@ export type ThemeMode = "light" | "dark" | "system";
 export type LanguageCode = "en" | "el" | "ro";
 export type WeekStartsOn = "monday" | "sunday";
 export type DefaultView = "dashboard" | "tasks" | "habits" | "calendar" | "account";
+export type TimeFormat = "12h" | "24h";
 
 export interface AppSettings {
   theme: ThemeMode;
   notifications_enabled: boolean;
   default_view: DefaultView;
   week_starts_on: WeekStartsOn;
+  time_format: TimeFormat;
   timezone: string;
   language: LanguageCode;
 }

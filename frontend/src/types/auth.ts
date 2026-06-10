@@ -1,6 +1,7 @@
 export interface User {
   user_id: string;
   email: string;
+  display_name?: string | null;
   timezone: string;
   language: string;
   is_active: boolean;
@@ -21,4 +22,24 @@ export interface AuthResponse {
 
 export interface MeResponse {
   user: User;
+}
+
+export interface ProfileUpdatePayload {
+  email: string;
+  display_name?: string | null;
+}
+
+export interface ProfileUpdateResponse {
+  message: string;
+  token: string;
+  user: User;
+}
+
+export interface PasswordChangePayload {
+  current_password: string;
+  new_password: string;
+}
+
+export interface PasswordChangeResponse {
+  message: string;
 }

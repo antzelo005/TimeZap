@@ -1,6 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
+import type { RouteProp } from "@react-navigation/native";
 import AppButton from "../components/AppButton";
+import DateField from "../components/DateField";
 import ScreenContainer from "../components/ScreenContainer";
 import { getCalendarDay, getCalendarMonth } from "../api/calendar.api";
 import { useTranslation } from "../i18n";
@@ -12,19 +16,17 @@ import type {
   CalendarMonthResponse,
   CalendarTaskItem
 } from "../types/calendar";
+import type { MainTabParamList } from "../types/navigation";
 import { getErrorMessage } from "../types/api";
 import { createLocalDate, formatLocalDate, getLocalMonthStart } from "../utils/date";
+import { formatTimeRangeForDisplay } from "../utils/time";
 
 interface DayCellData {
   isoDate: string;
   dayNumber: number;
 }
 
-function getMonthGrid(
-  year: number,
-  monthIndex: number,
-  weekStartsOn: "monday" | "sunday"
-): Array<DayCellData | null> {
+function getMonthGrid(year: number, monthIndex: number, weekStartsOn: "monday" | "sunday"): Array<DayCellData | null> {
   const firstDay = createLocalDate(year, monthIndex, 1);
   const daysInMonth = createLocalDate(year, monthIndex + 1, 0).getDate();
   const weekOffset = weekStartsOn === "monday" ? 1 : 0;
@@ -50,10 +52,7 @@ function getMonthGrid(
   return cells;
 }
 
-function getWeekdayLabels(
-  locale: string,
-  weekStartsOn: "monday" | "sunday"
-): string[] {
+function getWeekdayLabels(locale: string, weekStartsOn: "monday" | "sunday"): string[] {
   const formatter = new Intl.DateTimeFormat(locale, { weekday: "short" });
   const sundayReference = createLocalDate(2026, 0, 4);
 
@@ -77,16 +76,20 @@ function resolveLocale(language: string): string {
 
 function clampSelectedDate(targetMonth: Date, selectedDate: string): string {
   const selectedDay = Number(selectedDate.split("-")[2] || "1");
-  const daysInTargetMonth = createLocalDate(
-    targetMonth.getFullYear(),
-    targetMonth.getMonth() + 1,
-    0
-  ).getDate();
+  const daysInTargetMonth = createLocalDate(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
   const day = Math.min(selectedDay, daysInTargetMonth);
 
-  return formatLocalDate(
-    createLocalDate(targetMonth.getFullYear(), targetMonth.getMonth(), day)
-  );
+  return formatLocalDate(createLocalDate(targetMonth.getFullYear(), targetMonth.getMonth(), day));
+}
+
+function parseRouteDate(value?: string): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = createLocalDate(year, month - 1, day);
+  return formatLocalDate(parsed) === value ? parsed : null;
 }
 
 function DaySection<T>({
@@ -94,6 +97,7 @@ function DaySection<T>({
   items,
   emptyMessage,
   renderItem,
+  onPress,
   colors,
   spacing
 }: {
@@ -101,25 +105,36 @@ function DaySection<T>({
   items: T[];
   emptyMessage: string;
   renderItem: (item: T) => React.ReactNode;
+  onPress: () => void;
   colors: ReturnType<typeof useAppTheme>["colors"];
   spacing: ReturnType<typeof useAppTheme>["spacing"];
 }) {
   const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
 
   return (
-    <View style={styles.detailSection}>
-      <Text style={styles.detailHeading}>{title}</Text>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.detailSection, pressed ? styles.detailSectionPressed : null]}
+    >
+      <View style={styles.detailSectionHeader}>
+        <Text style={styles.detailHeading}>{title}</Text>
+        <Text style={styles.detailArrow}>{">"}</Text>
+      </View>
       {items.length === 0 ? <Text style={styles.emptyText}>{emptyMessage}</Text> : items.map(renderItem)}
-    </View>
+    </Pressable>
   );
 }
 
 export default function CalendarScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 900;
+  const scrollRef = useRef<ScrollView | null>(null);
   const { colors, spacing } = useAppTheme();
   const { t, language } = useTranslation();
   const { settings } = useSettings();
+  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList, "Calendar">>();
+  const route = useRoute<RouteProp<MainTabParamList, "Calendar">>();
   const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
   const today = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => formatLocalDate(today), [today]);
@@ -138,14 +153,8 @@ export default function CalendarScreen() {
     () => new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" }).format(visibleMonth),
     [locale, visibleMonth]
   );
-  const weekdayLabels = useMemo(
-    () => getWeekdayLabels(locale, settings.week_starts_on),
-    [locale, settings.week_starts_on]
-  );
-  const dayCells = useMemo(
-    () => getMonthGrid(year, monthIndex, settings.week_starts_on),
-    [year, monthIndex, settings.week_starts_on]
-  );
+  const weekdayLabels = useMemo(() => getWeekdayLabels(locale, settings.week_starts_on), [locale, settings.week_starts_on]);
+  const dayCells = useMemo(() => getMonthGrid(year, monthIndex, settings.week_starts_on), [year, monthIndex, settings.week_starts_on]);
   const calendarWeeks = useMemo(() => {
     const weeks: Array<Array<DayCellData | null>> = [];
 
@@ -155,6 +164,18 @@ export default function CalendarScreen() {
 
     return weeks;
   }, [dayCells]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const routeDate = parseRouteDate(route.params?.selectedDate);
+      if (routeDate) {
+        const isoDate = formatLocalDate(routeDate);
+        setSelectedDate(isoDate);
+        setVisibleMonth(getLocalMonthStart(routeDate));
+        setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: true }), 80);
+      }
+    }, [route.params?.selectedDate])
+  );
 
   useEffect(() => {
     void loadMonth(year, monthNumber);
@@ -198,12 +219,21 @@ export default function CalendarScreen() {
     });
   }
 
+  function selectDate(date: string): void {
+    const parsedDate = parseRouteDate(date);
+    if (parsedDate) {
+      setVisibleMonth(getLocalMonthStart(parsedDate));
+    }
+    setSelectedDate(date);
+    setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: true }), 80);
+  }
+
   function getMonthEntry(isoDate: string) {
     return monthData?.dates[isoDate] ?? null;
   }
 
   return (
-    <ScreenContainer>
+    <ScreenContainer scrollRef={scrollRef}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>{t("calendar.title")}</Text>
         <View style={styles.headerPill}>
@@ -211,14 +241,116 @@ export default function CalendarScreen() {
         </View>
       </View>
 
+      {error ? (
+        <View style={styles.errorCard}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : null}
+
+      <View style={[styles.detailCard, isWide ? styles.detailCardWide : null]}>
+        <View style={styles.detailHeader}>
+          <Text style={styles.detailTitle}>{t("calendar.dayDetails")}</Text>
+          <View style={styles.detailDateField}>
+            <DateField
+              label={t("calendar.jumpToDate")}
+              value={selectedDate}
+              onChange={selectDate}
+              placeholder={todayIso}
+              clearLabel={t("common.clear")}
+              todayLabel={t("common.today")}
+              doneLabel={t("common.done")}
+              previousLabel={t("calendar.previous")}
+              nextLabel={t("calendar.next")}
+              showClearButton={false}
+            />
+          </View>
+        </View>
+
+        {dayLoading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator color={colors.primaryBlue} />
+            <Text style={styles.loadingText}>{t("calendar.loadingDay")}</Text>
+          </View>
+        ) : (
+          <View style={[styles.detailContent, isWide ? styles.detailContentWide : null]}>
+            <DaySection<CalendarTaskItem>
+              title={t("calendar.tasksSection")}
+              items={dayData?.tasks ?? []}
+              emptyMessage={t("calendar.noTasksForDay")}
+              colors={colors}
+              spacing={spacing}
+              onPress={() => navigation.navigate("Tasks", { selectedDate })}
+              renderItem={(task) => {
+                const dateRange =
+                  task.due_date && task.end_date && task.end_date !== task.due_date
+                    ? `${task.due_date} -> ${task.end_date}`
+                    : "";
+                const timeRange = formatTimeRangeForDisplay(task.start_time || task.due_time, task.end_time, settings.time_format);
+
+                return (
+                  <View key={task.task_id} style={styles.listItem}>
+                    <Text style={styles.listItemTitle}>{task.title}</Text>
+                    <Text style={styles.listItemMeta}>
+                      {task.status === "completed" ? t("common.completed") : t("common.pending")}
+                      {dateRange ? ` / ${dateRange}` : ""}
+                      {timeRange ? ` / ${timeRange}` : ""}
+                    </Text>
+                  </View>
+                );
+              }}
+            />
+
+            <DaySection<CalendarHabitItem>
+              title={t("calendar.habitsSection")}
+              items={dayData?.habits ?? []}
+              emptyMessage={t("calendar.noHabitsForDay")}
+              colors={colors}
+              spacing={spacing}
+              onPress={() => navigation.navigate("Habits", { selectedDate })}
+              renderItem={(habit) => {
+                const dateRange =
+                  habit.end_date && habit.end_date !== habit.start_date
+                    ? `${habit.start_date} -> ${habit.end_date}`
+                    : "";
+                const timeRange = formatTimeRangeForDisplay(habit.start_time, habit.end_time, settings.time_format);
+
+                return (
+                  <View key={habit.habit_id} style={styles.listItem}>
+                    <Text style={styles.listItemTitle}>{habit.title}</Text>
+                    <Text style={styles.listItemMeta}>
+                      {habit.completed ? t("common.completed") : t("common.pending")}
+                      {habit.log ? ` / ${habit.log.completed_count}/${habit.log.target_count_snapshot}` : ""}
+                      {dateRange ? ` / ${dateRange}` : ""}
+                      {timeRange ? ` / ${timeRange}` : ""}
+                    </Text>
+                  </View>
+                );
+              }}
+            />
+          </View>
+        )}
+      </View>
+
       <View style={styles.card}>
-        <View style={[styles.monthHeader, isWide ? styles.monthHeaderWide : null]}>
-          <AppButton title={t("calendar.previous")} variant="secondary" onPress={() => changeMonth(-1)} />
+        <View style={styles.monthHeader}>
+          <View style={styles.monthNavRow}>
+            <AppButton
+              title={t("calendar.previous")}
+              variant="secondary"
+              onPress={() => changeMonth(-1)}
+              style={styles.monthNavButton}
+            />
+            <AppButton
+              title={t("calendar.next")}
+              variant="secondary"
+              onPress={() => changeMonth(1)}
+              style={styles.monthNavButton}
+            />
+          </View>
           <View style={styles.monthTitleWrap}>
             <Text style={styles.heading}>{monthLabel}</Text>
             <Text style={styles.body}>{t("calendar.monthSubtitle")}</Text>
           </View>
-          <AppButton title={t("calendar.next")} variant="secondary" onPress={() => changeMonth(1)} />
         </View>
 
         <View style={styles.weekdayRow}>
@@ -240,12 +372,7 @@ export default function CalendarScreen() {
               <View key={`week-${weekIndex}`} style={styles.weekRow}>
                 {week.map((cell, dayIndex) => {
                   if (!cell) {
-                    return (
-                      <View
-                        key={`empty-${weekIndex}-${dayIndex}`}
-                        style={[styles.dayCell, styles.dayCellEmpty]}
-                      />
-                    );
+                    return <View key={`empty-${weekIndex}-${dayIndex}`} style={[styles.dayCell, styles.dayCellEmpty]} />;
                   }
 
                   const monthEntry = getMonthEntry(cell.isoDate);
@@ -257,20 +384,10 @@ export default function CalendarScreen() {
                   return (
                     <Pressable
                       key={cell.isoDate}
-                      onPress={() => setSelectedDate(cell.isoDate)}
-                      style={[
-                        styles.dayCell,
-                        isSelected ? styles.dayCellSelected : null,
-                        isToday ? styles.dayCellToday : null
-                      ]}
+                      onPress={() => selectDate(cell.isoDate)}
+                      style={[styles.dayCell, isSelected ? styles.dayCellSelected : null, isToday ? styles.dayCellToday : null]}
                     >
-                      <Text
-                        style={[
-                          styles.dayNumber,
-                          isSelected ? styles.dayNumberSelected : null,
-                          isToday && !isSelected ? styles.dayNumberToday : null
-                        ]}
-                      >
+                      <Text style={[styles.dayNumber, isSelected ? styles.dayNumberSelected : null, isToday && !isSelected ? styles.dayNumberToday : null]}>
                         {cell.dayNumber}
                       </Text>
                       <View style={styles.indicatorRow}>
@@ -282,64 +399,6 @@ export default function CalendarScreen() {
                 })}
               </View>
             ))}
-          </View>
-        )}
-      </View>
-
-      {error ? (
-        <View style={styles.errorCard}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      ) : null}
-
-      <View style={[styles.detailCard, isWide ? styles.detailCardWide : null]}>
-        <View style={styles.detailHeader}>
-          <Text style={styles.detailTitle}>{t("calendar.dayDetails")}</Text>
-          <Text style={styles.detailDate}>{selectedDate}</Text>
-        </View>
-
-        {dayLoading ? (
-          <View style={styles.loadingWrap}>
-            <ActivityIndicator color={colors.primaryBlue} />
-            <Text style={styles.loadingText}>{t("calendar.loadingDay")}</Text>
-          </View>
-        ) : (
-          <View style={[styles.detailContent, isWide ? styles.detailContentWide : null]}>
-            <DaySection<CalendarTaskItem>
-              title={t("calendar.tasksSection")}
-              items={dayData?.tasks ?? []}
-              emptyMessage={t("calendar.noTasksForDay")}
-              colors={colors}
-              spacing={spacing}
-              renderItem={(task) => (
-                <View key={task.task_id} style={styles.listItem}>
-                  <Text style={styles.listItemTitle}>{task.title}</Text>
-                  <Text style={styles.listItemMeta}>
-                    {task.status === "completed" ? t("common.completed") : t("common.pending")}
-                    {task.due_time ? ` \u2022 ${task.due_time}` : ""}
-                  </Text>
-                </View>
-              )}
-            />
-
-            <DaySection<CalendarHabitItem>
-              title={t("calendar.habitsSection")}
-              items={dayData?.habits ?? []}
-              emptyMessage={t("calendar.noHabitsForDay")}
-              colors={colors}
-              spacing={spacing}
-              renderItem={(habit) => (
-                <View key={habit.habit_id} style={styles.listItem}>
-                  <Text style={styles.listItemTitle}>{habit.title}</Text>
-                  <Text style={styles.listItemMeta}>
-                    {habit.completed ? t("common.completed") : t("common.pending")}
-                    {habit.log
-                      ? ` \u2022 ${habit.log.completed_count}/${habit.log.target_count_snapshot}`
-                      : ""}
-                  </Text>
-                </View>
-              )}
-            />
           </View>
         )}
       </View>
@@ -378,7 +437,7 @@ function createStyles(
     },
     card: {
       backgroundColor: colors.surface,
-      borderRadius: 22,
+      borderRadius: 8,
       padding: spacing.lg,
       borderWidth: 1,
       borderColor: colors.border,
@@ -389,13 +448,18 @@ function createStyles(
       alignItems: "stretch",
       gap: spacing.md
     },
-    monthHeaderWide: {
+    monthNavRow: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between"
+      justifyContent: "space-between",
+      gap: spacing.sm
+    },
+    monthNavButton: {
+      flex: 1,
+      minWidth: 0,
+      borderRadius: 8
     },
     monthTitleWrap: {
-      flex: 1,
       alignItems: "center",
       gap: spacing.xs
     },
@@ -435,7 +499,7 @@ function createStyles(
       flex: 1,
       minWidth: 0,
       aspectRatio: 1,
-      borderRadius: 14,
+      borderRadius: 8,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -469,9 +533,11 @@ function createStyles(
       gap: 4
     },
     indicatorDot: {
-      width: 7,
-      height: 7,
-      borderRadius: 999
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.surface
     },
     taskDot: {
       backgroundColor: colors.primaryBlue
@@ -481,7 +547,7 @@ function createStyles(
     },
     detailCard: {
       backgroundColor: colors.surface,
-      borderRadius: 22,
+      borderRadius: 8,
       padding: spacing.lg,
       borderWidth: 1,
       borderColor: colors.border,
@@ -492,6 +558,9 @@ function createStyles(
     },
     detailHeader: {
       gap: spacing.xs
+    },
+    detailDateField: {
+      maxWidth: 360
     },
     detailTitle: {
       fontSize: 18,
@@ -511,6 +580,20 @@ function createStyles(
     },
     detailSection: {
       flex: 1,
+      gap: spacing.sm,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      padding: spacing.md
+    },
+    detailSectionPressed: {
+      borderColor: colors.primaryBlueSoft
+    },
+    detailSectionHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
       gap: spacing.sm
     },
     detailHeading: {
@@ -518,9 +601,14 @@ function createStyles(
       fontWeight: "700",
       color: colors.textPrimary
     },
+    detailArrow: {
+      color: colors.primaryBlueDark,
+      fontSize: 16,
+      fontWeight: "900"
+    },
     listItem: {
-      backgroundColor: colors.surfaceMuted,
-      borderRadius: 16,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
       padding: spacing.md,
       gap: spacing.xs
     },
@@ -551,7 +639,7 @@ function createStyles(
       backgroundColor: colors.dangerSoft,
       borderWidth: 1,
       borderColor: colors.danger,
-      borderRadius: 16,
+      borderRadius: 8,
       padding: spacing.md
     },
     errorText: {

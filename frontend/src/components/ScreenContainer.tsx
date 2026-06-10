@@ -1,36 +1,51 @@
 import React from "react";
 import type { ReactNode } from "react";
-import { Platform, ScrollView, StyleSheet, View } from "react-native";
+import type { RefObject } from "react";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "../theme/useAppTheme";
 
 interface ScreenContainerProps {
   children: ReactNode;
   scroll?: boolean;
+  scrollRef?: RefObject<ScrollView | null>;
+  extraBottomPadding?: number;
 }
 
 export default function ScreenContainer({
   children,
-  scroll = true
+  scroll = true,
+  scrollRef,
+  extraBottomPadding = 0
 }: ScreenContainerProps) {
   const { colors, spacing } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const styles = createStyles(colors, spacing);
+  const bottomPadding = spacing.xl + insets.bottom + 96 + extraBottomPadding;
 
   if (!scroll) {
     return (
       <View style={styles.container}>
-        <View style={styles.staticContent}>{children}</View>
+        <View style={[styles.staticContent, { paddingBottom: bottomPadding }]}>{children}</View>
       </View>
     );
   }
 
   return (
-    <ScrollView
+    <KeyboardAvoidingView
       style={styles.container}
-      contentContainerStyle={styles.scrollContent}
-      keyboardShouldPersistTaps="handled"
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={styles.content}>{children}</View>
-    </ScrollView>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.container}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPadding }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.content}>{children}</View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

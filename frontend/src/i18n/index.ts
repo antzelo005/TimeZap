@@ -4,13 +4,13 @@ import ro from "./locales/ro";
 import { useSettings } from "../context/SettingsContext";
 import type { LanguageCode } from "../types/settings";
 
-const locales = {
+type TranslationKey = keyof typeof en;
+
+const locales: Record<LanguageCode, Partial<Record<TranslationKey, string>>> = {
   en,
   el,
   ro
-} as const;
-
-type TranslationKey = keyof typeof en;
+};
 
 function normalizeLanguage(language: string | undefined): LanguageCode {
   return language === "el" || language === "ro" ? language : "en";
