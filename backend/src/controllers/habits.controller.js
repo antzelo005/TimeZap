@@ -5,10 +5,16 @@ const {
   getTodayDateString,
   isNonEmptyString,
   parseId,
+  validateBoolean,
   validateISODate,
   validateEnum,
   validateTime
 } = require("../utils/validators");
+const {
+  cancelNotificationsForRelated,
+  cancelRemainingNotificationsForRelatedDate,
+  createHabitReminderNotifications
+} = require("./notifications.controller");
 
 const ALLOWED_HABIT_STATUSES = ["active", "archived"];
 const ALLOWED_RECURRENCE_TYPES = [
@@ -47,6 +53,8 @@ function mapHabitRow(habitRow, ruleRow, dayRows) {
     end_date: habitRow.end_date,
     start_time: habitRow.start_time,
     end_time: habitRow.end_time,
+    reminder_enabled: habitRow.reminder_enabled,
+    reminder_time: habitRow.reminder_time,
     status: habitRow.status,
     emoji: habitRow.emoji,
     color: habitRow.color,
@@ -73,7 +81,7 @@ function mapHabitRow(habitRow, ruleRow, dayRows) {
 
 function validateHabitPayload(body, options = {}) {
   const { requireTitle = true, requireStartDate = true } = options;
-  const { title, start_date, end_date, start_time, end_time, status, rule } = body;
+  const { title, start_date, end_date, start_time, end_time, reminder_enabled, reminder_time, status, rule } = body;
 
   if (requireTitle && !isNonEmptyString(title)) {
     throw createAppError(400, "Title is required");
@@ -101,6 +109,14 @@ function validateHabitPayload(body, options = {}) {
 
   if (end_time && !validateTime(end_time)) {
     throw createAppError(400, "end_time must be a valid time");
+  }
+
+  if (reminder_enabled !== undefined && !validateBoolean(reminder_enabled)) {
+    throw createAppError(400, "reminder_enabled must be a boolean");
+  }
+
+  if (reminder_time && !validateTime(reminder_time)) {
+    throw createAppError(400, "reminder_time must be a valid time");
   }
 
   if (status && !validateEnum(status, ALLOWED_HABIT_STATUSES)) {
@@ -133,6 +149,8 @@ async function getHabitWithRule(userId, habitId) {
        to_char(end_date, 'YYYY-MM-DD') AS end_date,
        to_char(start_time, 'HH24:MI:SS') AS start_time,
        to_char(end_time, 'HH24:MI:SS') AS end_time,
+       reminder_enabled,
+       to_char(reminder_time, 'HH24:MI:SS') AS reminder_time,
        status,
        emoji,
        color,
@@ -197,6 +215,8 @@ async function getHabits(req, res, next) {
          to_char(end_date, 'YYYY-MM-DD') AS end_date,
          to_char(start_time, 'HH24:MI:SS') AS start_time,
          to_char(end_time, 'HH24:MI:SS') AS end_time,
+         reminder_enabled,
+         to_char(reminder_time, 'HH24:MI:SS') AS reminder_time,
          status,
          emoji,
          color,
@@ -252,6 +272,8 @@ async function createHabit(req, res, next) {
       end_date,
       start_time,
       end_time,
+      reminder_enabled,
+      reminder_time,
       emoji,
       color,
       rule = {}
@@ -269,12 +291,14 @@ async function createHabit(req, res, next) {
          end_date,
          start_time,
          end_time,
+         reminder_enabled,
+         reminder_time,
          status,
          emoji,
          color,
          created_at,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, NOW(), NOW())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, NOW(), NOW())
        RETURNING habit_id`,
       [
         req.user.user_id,
@@ -284,6 +308,8 @@ async function createHabit(req, res, next) {
         end_date || null,
         start_time || null,
         end_time || null,
+        Boolean(reminder_enabled),
+        reminder_time || null,
         emoji || null,
         color || null
       ]
@@ -327,6 +353,7 @@ async function createHabit(req, res, next) {
     await client.query("COMMIT");
 
     const habit = await getHabitWithRule(req.user.user_id, habitId);
+    await createHabitReminderNotifications(req.user.user_id, habit);
 
     res.status(201).json({
       message: "Habit created successfully",
@@ -363,6 +390,8 @@ async function updateHabit(req, res, next) {
       end_date,
       start_time,
       end_time,
+      reminder_enabled,
+      reminder_time,
       status,
       emoji,
       color,
@@ -381,11 +410,13 @@ async function updateHabit(req, res, next) {
          end_date = $4,
          start_time = $5,
          end_time = $6,
-         status = $7,
-         emoji = $8,
-         color = $9,
+         reminder_enabled = COALESCE($7, reminder_enabled),
+         reminder_time = $8,
+         status = $9,
+         emoji = $10,
+         color = $11,
          updated_at = NOW()
-       WHERE habit_id = $10 AND user_id = $11`,
+       WHERE habit_id = $12 AND user_id = $13`,
       [
         title.trim(),
         description || null,
@@ -393,6 +424,8 @@ async function updateHabit(req, res, next) {
         end_date || null,
         start_time || null,
         end_time || null,
+        reminder_enabled !== undefined ? Boolean(reminder_enabled) : null,
+        reminder_time || null,
         status || existingHabit.status,
         emoji || null,
         color || null,
@@ -442,6 +475,7 @@ async function updateHabit(req, res, next) {
     await client.query("COMMIT");
 
     const habit = await getHabitWithRule(req.user.user_id, habitId);
+    await createHabitReminderNotifications(req.user.user_id, habit);
 
     res.status(200).json({
       message: "Habit updated successfully",
@@ -470,6 +504,8 @@ async function deleteHabit(req, res, next) {
     if (result.rows.length === 0) {
       throw createAppError(404, "Habit not found");
     }
+
+    await cancelNotificationsForRelated(req.user.user_id, "habit", habitId);
 
     res.status(200).json({
       message: "Habit deleted successfully"
@@ -524,6 +560,8 @@ async function logHabit(req, res, next) {
        RETURNING habit_log_id, habit_id, user_id, to_char(log_date, 'YYYY-MM-DD') AS log_date, completed_count, target_count_snapshot, status, completed_at, created_at, updated_at`,
       [habitId, req.user.user_id, requestedDate, habit.rule ? habit.rule.target_count : 1]
     );
+
+    await cancelRemainingNotificationsForRelatedDate(req.user.user_id, "habit", habitId, requestedDate);
 
     res.status(201).json({
       message: "Habit logged successfully",

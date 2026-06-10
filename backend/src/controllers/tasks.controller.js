@@ -3,9 +3,14 @@ const {
   createAppError,
   isNonEmptyString,
   parseId,
+  validateBoolean,
   validateISODate,
   validateTime
 } = require("../utils/validators");
+const {
+  cancelNotificationsForRelated,
+  createTaskReminderNotifications
+} = require("./notifications.controller");
 
 const ALLOWED_TASK_STATUSES = ["pending", "completed", "cancelled"];
 const TASK_GRACE_PERIOD_MINUTES = 60;
@@ -23,6 +28,7 @@ const TASK_SELECT = `
     to_char(end_time, 'HH24:MI:SS') AS end_time,
     status,
     is_all_day,
+    reminder_enabled,
     completed_at,
     emoji,
     color,
@@ -51,7 +57,7 @@ function isTaskOverdue(task, now = new Date()) {
     return false;
   }
 
-  const scheduledTime = task.end_date ? task.end_time || task.start_time || task.due_time : task.start_time || task.due_time;
+  const scheduledTime = task.end_date ? task.end_time : task.end_time || task.start_time || task.due_time;
   if (task.is_all_day || !scheduledTime) {
     const nextDayStart = new Date(dateParts.year, dateParts.month - 1, dateParts.day + 1);
     return now.getTime() >= nextDayStart.getTime();
@@ -157,7 +163,19 @@ async function getTaskById(req, res, next) {
 
 async function createTask(req, res, next) {
   try {
-    const { title, description, due_date, end_date, due_time, start_time, end_time, is_all_day, emoji, color } = req.body;
+    const {
+      title,
+      description,
+      due_date,
+      end_date,
+      due_time,
+      start_time,
+      end_time,
+      is_all_day,
+      reminder_enabled,
+      emoji,
+      color
+    } = req.body;
     const resolvedStartTime = start_time || due_time || null;
     const resolvedEndDate = end_date || null;
 
@@ -183,6 +201,10 @@ async function createTask(req, res, next) {
 
     if (end_time && !validateTime(end_time)) {
       throw createAppError(400, "end_time must be a valid time");
+    }
+
+    if (reminder_enabled !== undefined && !validateBoolean(reminder_enabled)) {
+      throw createAppError(400, "reminder_enabled must be a boolean");
     }
 
     const result = await query(
@@ -197,12 +219,13 @@ async function createTask(req, res, next) {
          end_time,
          status,
          is_all_day,
+         reminder_enabled,
          completed_at,
          emoji,
          color,
          created_at,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, NULL, $10, $11, NOW(), NOW())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, NULL, $11, $12, NOW(), NOW())
        RETURNING task_id`,
       [
         req.user.user_id,
@@ -214,6 +237,7 @@ async function createTask(req, res, next) {
         resolvedStartTime,
         end_time || null,
         Boolean(is_all_day),
+        Boolean(reminder_enabled),
         emoji || null,
         color || null
       ]
@@ -226,9 +250,12 @@ async function createTask(req, res, next) {
       [result.rows[0].task_id, req.user.user_id]
     );
 
+    const task = mapTask(taskResult.rows[0]);
+    await createTaskReminderNotifications(req.user.user_id, task);
+
     res.status(201).json({
       message: "Task created successfully",
-      task: mapTask(taskResult.rows[0])
+      task
     });
   } catch (error) {
     next(error);
@@ -238,7 +265,19 @@ async function createTask(req, res, next) {
 async function updateTask(req, res, next) {
   try {
     const taskId = parseId(req.params.id, "Task ID");
-    const { title, description, due_date, end_date, due_time, start_time, end_time, is_all_day, emoji, color } = req.body;
+    const {
+      title,
+      description,
+      due_date,
+      end_date,
+      due_time,
+      start_time,
+      end_time,
+      is_all_day,
+      reminder_enabled,
+      emoji,
+      color
+    } = req.body;
     const resolvedStartTime = start_time || due_time || null;
     const resolvedEndDate = end_date || null;
 
@@ -266,6 +305,10 @@ async function updateTask(req, res, next) {
       throw createAppError(400, "end_time must be a valid time");
     }
 
+    if (reminder_enabled !== undefined && !validateBoolean(reminder_enabled)) {
+      throw createAppError(400, "reminder_enabled must be a boolean");
+    }
+
     const result = await query(
       `UPDATE tasks
        SET
@@ -277,10 +320,11 @@ async function updateTask(req, res, next) {
          start_time = $6,
          end_time = $7,
          is_all_day = $8,
-         emoji = $9,
-         color = $10,
+         reminder_enabled = COALESCE($9, reminder_enabled),
+         emoji = $10,
+         color = $11,
          updated_at = NOW()
-       WHERE task_id = $11 AND user_id = $12
+       WHERE task_id = $12 AND user_id = $13
        RETURNING task_id`,
       [
         title.trim(),
@@ -291,6 +335,7 @@ async function updateTask(req, res, next) {
         resolvedStartTime,
         end_time || null,
         Boolean(is_all_day),
+        reminder_enabled !== undefined ? Boolean(reminder_enabled) : null,
         emoji || null,
         color || null,
         taskId,
@@ -309,9 +354,12 @@ async function updateTask(req, res, next) {
       [taskId, req.user.user_id]
     );
 
+    const task = mapTask(taskResult.rows[0]);
+    await createTaskReminderNotifications(req.user.user_id, task);
+
     res.status(200).json({
       message: "Task updated successfully",
-      task: mapTask(taskResult.rows[0])
+      task
     });
   } catch (error) {
     next(error);
@@ -329,6 +377,8 @@ async function deleteTask(req, res, next) {
     if (result.rows.length === 0) {
       throw createAppError(404, "Task not found");
     }
+
+    await cancelNotificationsForRelated(req.user.user_id, "task", taskId);
 
     res.status(200).json({
       message: "Task deleted successfully"
@@ -352,6 +402,8 @@ async function completeTask(req, res, next) {
     if (result.rows.length === 0) {
       throw createAppError(404, "Task not found");
     }
+
+    await cancelNotificationsForRelated(req.user.user_id, "task", taskId);
 
     const taskResult = await query(
       `${TASK_SELECT}
@@ -383,6 +435,8 @@ async function cancelTask(req, res, next) {
     if (result.rows.length === 0) {
       throw createAppError(404, "Task not found");
     }
+
+    await cancelNotificationsForRelated(req.user.user_id, "task", taskId);
 
     const taskResult = await query(
       `${TASK_SELECT}

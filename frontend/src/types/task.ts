@@ -10,6 +10,7 @@ export interface Task {
   end_time: string | null;
   status: "pending" | "completed" | "cancelled";
   is_all_day: boolean;
+  reminder_enabled: boolean;
   completed_at: string | null;
   emoji?: string | null;
   color?: string | null;
@@ -40,6 +41,7 @@ export interface CreateTaskPayload {
   start_time?: string | null;
   end_time?: string | null;
   is_all_day: boolean;
+  reminder_enabled?: boolean;
   emoji?: string | null;
   color?: string | null;
 }

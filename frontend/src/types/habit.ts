@@ -33,6 +33,8 @@ export interface Habit {
   end_date?: string | null;
   start_time?: string | null;
   end_time?: string | null;
+  reminder_enabled: boolean;
+  reminder_time?: string | null;
   status: HabitStatus;
   emoji?: string | null;
   color?: string | null;
@@ -84,6 +86,8 @@ export interface CreateHabitPayload {
   end_date?: string | null;
   start_time?: string | null;
   end_time?: string | null;
+  reminder_enabled?: boolean;
+  reminder_time?: string | null;
   status?: HabitStatus;
   emoji?: string | null;
   color?: string | null;

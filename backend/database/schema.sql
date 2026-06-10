@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   end_time TIME,
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
   is_all_day BOOLEAN NOT NULL DEFAULT FALSE,
+  reminder_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   completed_at TIMESTAMP,
   emoji VARCHAR(20),
   color VARCHAR(20),
@@ -58,6 +59,8 @@ CREATE TABLE IF NOT EXISTS habits (
   end_date DATE,
   start_time TIME,
   end_time TIME,
+  reminder_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  reminder_time TIME,
   status VARCHAR(20) NOT NULL DEFAULT 'active',
   emoji VARCHAR(20),
   color VARCHAR(20),
@@ -112,10 +115,21 @@ CREATE TABLE IF NOT EXISTS notifications (
   notification_id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
   related_type VARCHAR(20) NOT NULL,
-  related_id BIGINT NOT NULL,
+  related_id BIGINT,
+  kind VARCHAR(40) NOT NULL DEFAULT 'standard_reminder',
+  title TEXT NOT NULL DEFAULT 'Notification',
+  body TEXT NOT NULL DEFAULT '',
   scheduled_for TIMESTAMP NOT NULL,
-  status VARCHAR(20) NOT NULL DEFAULT 'pending',
-  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  occurrence_date DATE,
+  status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+  read_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  CONSTRAINT chk_notifications_related_type CHECK (related_type IN ('task', 'habit', 'system')),
+  CONSTRAINT chk_notifications_kind CHECK (
+    kind IN ('standard_reminder', 'overdue_30', 'overdue_15', 'overdue_5', 'system')
+  ),
+  CONSTRAINT chk_notifications_status CHECK (status IN ('scheduled', 'cancelled'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -128,3 +142,7 @@ CREATE INDEX IF NOT EXISTS idx_habits_user_end_date ON habits(user_id, end_date)
 CREATE INDEX IF NOT EXISTS idx_habit_logs_habit_date ON habit_logs(habit_id, log_date);
 CREATE INDEX IF NOT EXISTS idx_habit_logs_user_date ON habit_logs(user_id, log_date);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_scheduled ON notifications(user_id, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_status_read ON notifications(user_id, status, read_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_unique_scheduled
+  ON notifications(user_id, related_type, related_id, kind, scheduled_for)
+  WHERE status = 'scheduled';

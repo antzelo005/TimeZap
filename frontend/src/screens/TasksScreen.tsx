@@ -12,21 +12,21 @@ import FormModal from "../components/FormModal";
 import IconColorPicker, { IconBadge } from "../components/IconColorPicker";
 import ScreenContainer from "../components/ScreenContainer";
 import TimeField from "../components/TimeField";
+import { getNotifications } from "../api/notifications.api";
 import { completeTask, createTask, deleteTask, getTasks, updateTask } from "../api/tasks.api";
 import type { CreateTaskPayload, Task } from "../types/task";
 import type { MainTabParamList } from "../types/navigation";
 import { getErrorMessage } from "../types/api";
+import { useAuth } from "../context/AuthContext";
 import { useAppTheme } from "../theme/useAppTheme";
 import { useTranslation } from "../i18n";
 import { useSettings } from "../context/SettingsContext";
-import { notifyDashboardChanged } from "../services/appEvents";
+import { notifyDashboardChanged, notifyNotificationsChanged } from "../services/appEvents";
 import {
-  cancelLocalNotification,
   checkNotificationAvailability,
-  getLocalRemindersByType,
-  scheduleTaskReminder
+  syncNotificationSchedules
 } from "../services/notifications";
-import type { LocalReminderRecord, ScheduleReminderResult } from "../types/notification";
+import type { NotificationItem } from "../types/notification";
 import { createLocalDate, formatLocalDate } from "../utils/date";
 import { formatTimeRangeForDisplay, normalizeTimeForInput, timeToMinutes } from "../utils/time";
 
@@ -85,7 +85,7 @@ function taskToForm(task: Task): TaskFormState {
     is_all_day: task.is_all_day,
     emoji: task.emoji ?? "zap",
     color: task.color ?? "#2563EB",
-    reminder_enabled: false,
+    reminder_enabled: Boolean(task.reminder_enabled),
     reminder_date: "",
     reminder_time: "09:00"
   };
@@ -111,15 +111,10 @@ function formToPayload(form: TaskFormState): CreateTaskPayload {
     start_time: startTime,
     end_time: endTime,
     is_all_day: form.is_all_day,
+    reminder_enabled: form.reminder_enabled,
     emoji: cleanOptional(form.emoji),
     color: cleanOptional(form.color)
   };
-}
-
-function shiftIsoDate(value: string, offset: number): string {
-  const [year, month, day] = value.split("-").map(Number);
-  const shifted = createLocalDate(year, month - 1, day + offset);
-  return formatLocalDate(shifted);
 }
 
 function isValidDateInput(value: string): boolean {
@@ -172,7 +167,16 @@ function buildReminderDateTime(dateValue: string, timeValue: string): Date | nul
   return new Date(year, month - 1, day, time.hour, time.minute, 0, 0);
 }
 
-function mergeReminderIntoForm(form: TaskFormState, reminder?: LocalReminderRecord): TaskFormState {
+function getNotificationScheduledTime(notification: NotificationItem): number {
+  return new Date(notification.scheduled_for).getTime();
+}
+
+function formatNotificationDateTime(value: string): string {
+  const normalized = value.replace("T", " ");
+  return normalized.length >= 16 ? normalized.slice(0, 16) : normalized;
+}
+
+function mergeReminderIntoForm(form: TaskFormState, reminder?: NotificationItem): TaskFormState {
   if (!reminder) {
     return form;
   }
@@ -180,8 +184,8 @@ function mergeReminderIntoForm(form: TaskFormState, reminder?: LocalReminderReco
   return {
     ...form,
     reminder_enabled: true,
-    reminder_date: reminder.scheduled_date ?? reminder.reminder_date ?? "",
-    reminder_time: reminder.scheduled_time ?? reminder.reminder_time
+    reminder_date: reminder.occurrence_date ?? "",
+    reminder_time: reminder.scheduled_for.slice(11, 16) || "09:00"
   };
 }
 
@@ -204,7 +208,7 @@ function isTaskOverdueLocal(task: Task, now = new Date()): boolean {
 
   const overdueDate = task.end_date || task.due_date;
   const [year, month, day] = overdueDate.split("-").map(Number);
-  const startTime = task.end_date ? task.end_time || task.start_time || task.due_time : task.start_time || task.due_time;
+  const startTime = task.end_date ? task.end_time : task.end_time || task.start_time || task.due_time;
 
   if (task.is_all_day || !startTime) {
     const tomorrowStart = createLocalDate(year, month - 1, day + 1);
@@ -240,13 +244,14 @@ export default function TasksScreen() {
   const { colors, spacing } = useAppTheme();
   const { t } = useTranslation();
   const { settings } = useSettings();
+  const { user } = useAuth();
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList, "Tasks">>();
   const route = useRoute<RouteProp<MainTabParamList, "Tasks">>();
   const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
   const selectedDate = route.params?.selectedDate;
   const today = useMemo(() => formatLocalDate(new Date()), []);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [taskReminders, setTaskReminders] = useState<Record<string, LocalReminderRecord>>({});
+  const [taskReminders, setTaskReminders] = useState<Record<string, NotificationItem>>({});
   const [form, setForm] = useState<TaskFormState>(() => getEmptyForm());
   const [formMode, setFormMode] = useState<TaskFormMode>("create");
   const [formOpen, setFormOpen] = useState<boolean>(false);
@@ -284,13 +289,39 @@ export default function TasksScreen() {
   );
   const notificationAvailability = useMemo(() => checkNotificationAvailability(), []);
 
+  function mapTaskNotifications(items: NotificationItem[]): Record<string, NotificationItem> {
+    const reminders: Record<string, NotificationItem> = {};
+    const now = Date.now();
+
+    for (const notification of items) {
+      const scheduledAt = getNotificationScheduledTime(notification);
+
+      if (
+        notification.related_type === "task" &&
+        notification.related_id &&
+        notification.status === "scheduled" &&
+        !Number.isNaN(scheduledAt) &&
+        scheduledAt > now &&
+        (!reminders[notification.related_id] ||
+          scheduledAt < getNotificationScheduledTime(reminders[notification.related_id]))
+      ) {
+        reminders[notification.related_id] = notification;
+      }
+    }
+
+    return reminders;
+  }
+
   async function loadTasks(): Promise<void> {
     try {
       setError("");
       setLoading(true);
-      const [response, reminders] = await Promise.all([getTasks(), getLocalRemindersByType("task")]);
+      const [response, notificationResponse] = await Promise.all([
+        getTasks(),
+        getNotifications({ status: "scheduled" })
+      ]);
       setTasks(response.items || []);
-      setTaskReminders(reminders);
+      setTaskReminders(mapTaskNotifications(notificationResponse.items || []));
     } catch (err: unknown) {
       setError(getErrorMessage(err));
     } finally {
@@ -328,97 +359,30 @@ export default function TasksScreen() {
     setFormOpen(true);
   }
 
-  function changeDateFilter(offset: number): void {
-    const baseDate = selectedDate && isValidDateInput(selectedDate) ? selectedDate : today;
-    navigation.setParams({ selectedDate: shiftIsoDate(baseDate, offset) });
+  async function syncTaskNotifications(): Promise<void> {
+    const notificationResponse = await getNotifications({ status: "scheduled" });
+    setTaskReminders(mapTaskNotifications(notificationResponse.items || []));
+
+    if (user) {
+      await syncNotificationSchedules(user.user_id, notificationResponse.items || [], settings.notifications_enabled);
+    }
+
+    notifyNotificationsChanged();
   }
 
-  function getReminderStatusMessage(result: ScheduleReminderResult): string {
-    if (result.reason === "past_date") {
-      return t("notifications.pastDate");
+  useEffect(() => {
+    if (!user) {
+      return undefined;
     }
 
-    if (!settings.notifications_enabled) {
-      return t("notifications.disabledInSettings");
-    }
+    const intervalId = setInterval(() => {
+      void getNotifications({ status: "scheduled" })
+        .then((notificationResponse) => setTaskReminders(mapTaskNotifications(notificationResponse.items || [])))
+        .catch(() => undefined);
+    }, 30000);
 
-    if (result.ok) {
-      return t("notifications.reminderScheduled");
-    }
-
-    if (result.reason === "permission_denied") {
-      return t("notifications.permissionDenied");
-    }
-
-    if (result.reason === "unsupported") {
-      return notificationAvailability.reason === "web_unsupported"
-        ? t("notifications.webUnsupported")
-        : t("notifications.reminderUnsupported");
-    }
-
-    return t("notifications.invalidDateTime");
-  }
-
-  async function refreshTaskReminders(): Promise<void> {
-    const reminders = await getLocalRemindersByType("task");
-    setTaskReminders(reminders);
-  }
-
-  async function syncTaskReminder(task: Task, payload: CreateTaskPayload): Promise<void> {
-    if (!form.reminder_enabled) {
-      await cancelLocalNotification("task", task.task_id);
-      setReminderMessage("");
-      await refreshTaskReminders();
-      return;
-    }
-
-    if (task.status !== "pending") {
-      await cancelLocalNotification("task", task.task_id);
-      setReminderMessage(t("notifications.onlyPendingTasks"));
-      await refreshTaskReminders();
-      return;
-    }
-
-    const scheduledTime = payload.is_all_day
-      ? null
-      : payload.end_date
-        ? payload.end_time || payload.start_time || payload.due_time
-        : payload.start_time || payload.due_time;
-    const includeGraceWarnings = Boolean(scheduledTime);
-    const reminderDate = includeGraceWarnings
-      ? payload.end_date || payload.due_date || ""
-      : form.reminder_date.trim() || payload.due_date || "";
-    const reminderTime = includeGraceWarnings
-      ? scheduledTime ?? ""
-      : form.reminder_time.trim() || "09:00";
-    const scheduledFor = buildReminderDateTime(reminderDate, reminderTime);
-
-    if (!scheduledFor) {
-      setReminderMessage(t("notifications.invalidDateTime"));
-      return;
-    }
-
-    const result = await scheduleTaskReminder({
-      taskId: task.task_id,
-      title: t("notifications.taskNotificationTitle"),
-      body: includeGraceWarnings
-        ? t("notifications.taskStandardReminderBody", { title: task.title })
-        : t("notifications.taskNotificationBody", { title: task.title }),
-      scheduledFor,
-      overdueWarningTitle: t("notifications.overdueWarningTitle"),
-      overdueWarningBodies: {
-        30: t("notifications.taskOverdueWarning30", { title: task.title }),
-        15: t("notifications.taskOverdueWarning15", { title: task.title }),
-        5: t("notifications.taskOverdueWarning5", { title: task.title })
-      },
-      includeGraceWarnings,
-      standardLeadMinutes: includeGraceWarnings ? 30 : 0,
-      deviceNotificationsEnabled: settings.notifications_enabled
-    });
-
-    setReminderMessage(getReminderStatusMessage(result));
-    await refreshTaskReminders();
-  }
+    return () => clearInterval(intervalId);
+  }, [settings.notifications_enabled, user]);
 
   async function confirmAction(title: string, message: string, confirmLabel: string): Promise<boolean> {
     if (Platform.OS === "web") {
@@ -475,9 +439,9 @@ export default function TasksScreen() {
       setError("");
       setFormError("");
 
-      const response = editingTaskId ? await updateTask(editingTaskId, payload) : await createTask(payload);
-      await syncTaskReminder(response.task, payload);
+      editingTaskId ? await updateTask(editingTaskId, payload) : await createTask(payload);
       await loadTasks();
+      await syncTaskNotifications();
       notifyDashboardChanged();
       closeForm();
     } catch (err: unknown) {
@@ -509,6 +473,7 @@ export default function TasksScreen() {
       setError("");
       await action();
       await loadTasks();
+      await syncTaskNotifications();
       notifyDashboardChanged();
     } catch (err: unknown) {
       Alert.alert(t("tasks.errorTitle"), getErrorMessage(err));
@@ -527,8 +492,6 @@ export default function TasksScreen() {
           throw err;
         }
       }
-      await cancelLocalNotification("task", taskId);
-      await refreshTaskReminders();
     });
   }
 
@@ -549,8 +512,6 @@ export default function TasksScreen() {
 
     await runTaskAction(task.task_id, async () => {
       await deleteTask(task.task_id);
-      await cancelLocalNotification("task", task.task_id);
-      await refreshTaskReminders();
     });
   }
 
@@ -597,8 +558,8 @@ export default function TasksScreen() {
             <Text style={styles.itemMeta}>{getDueLabel(task)}</Text>
             {taskReminders[task.task_id] ? (
               <Text style={styles.reminderMeta}>
-                {t("notifications.reminderSetFor", {
-                  value: `${taskReminders[task.task_id].reminder_date ?? ""} ${taskReminders[task.task_id].reminder_time}`.trim()
+                {t("notifications.nextReminderAt", {
+                  value: formatNotificationDateTime(taskReminders[task.task_id].scheduled_for)
                 })}
               </Text>
             ) : null}
@@ -813,40 +774,13 @@ export default function TasksScreen() {
                   </Pressable>
 
                   {form.reminder_enabled ? (
-                    <>
-                      <View style={styles.formRow}>
-                        <View style={styles.formColumn}>
-                          <DateField
-                            label={t("notifications.reminderDate")}
-                            value={form.reminder_date}
-                            onChange={(value) => setForm((current) => ({ ...current, reminder_date: value }))}
-                            placeholder={form.due_date || t("tasks.noDate")}
-                            clearLabel={t("common.clear")}
-                            todayLabel={t("common.today")}
-                            doneLabel={t("common.done")}
-                            previousLabel={t("calendar.previous")}
-                            nextLabel={t("calendar.next")}
-                          />
-                        </View>
-                        <View style={styles.formColumn}>
-                          <TimeField
-                            label={t("notifications.reminderTime")}
-                            value={form.reminder_time}
-                            onChange={(value) => setForm((current) => ({ ...current, reminder_time: value }))}
-                            placeholder="09:00"
-                            clearLabel={t("common.clear")}
-                            doneLabel={t("common.done")}
-                          />
-                        </View>
-                      </View>
-                      <Text style={styles.reminderHint}>
-                        {settings.notifications_enabled
-                          ? notificationAvailability.available
-                            ? t("notifications.taskReminderHint")
-                            : t("notifications.webUnsupported")
-                          : t("notifications.disabledInSettings")}
-                      </Text>
-                    </>
+                    <Text style={styles.reminderHint}>
+                      {settings.notifications_enabled
+                        ? notificationAvailability.available
+                          ? t("notifications.taskReminderHint")
+                          : t("notifications.webUnsupported")
+                        : t("notifications.disabledInSettings")}
+                    </Text>
                   ) : null}
 
                   {reminderMessage ? <Text style={styles.reminderStatus}>{reminderMessage}</Text> : null}
@@ -907,22 +841,6 @@ export default function TasksScreen() {
             />
           </View>
           <View style={styles.dateButtonRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("calendar.previous")}
-              onPress={() => changeDateFilter(-1)}
-              style={({ pressed }) => [styles.dateArrowButton, pressed ? styles.dateArrowButtonPressed : null]}
-            >
-              <Text style={styles.dateArrowText}>{"<"}</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("calendar.next")}
-              onPress={() => changeDateFilter(1)}
-              style={({ pressed }) => [styles.dateArrowButton, pressed ? styles.dateArrowButtonPressed : null]}
-            >
-              <Text style={styles.dateArrowText}>{">"}</Text>
-            </Pressable>
             <Pressable onPress={() => navigation.setParams({ selectedDate: today })} style={styles.clearDateButton}>
               <Text style={styles.clearDateText}>{t("common.today")}</Text>
             </Pressable>
@@ -1040,8 +958,8 @@ function createStyles(
       fontWeight: "700"
     },
     selectedDateRow: {
-      flexDirection: "row",
-      alignItems: "center",
+      flexDirection: Platform.OS === "android" ? "column" : "row",
+      alignItems: Platform.OS === "android" ? "stretch" : "center",
       justifyContent: "space-between",
       gap: spacing.sm,
       borderRadius: 8,
@@ -1052,7 +970,7 @@ function createStyles(
     },
     selectedDateField: {
       flex: 1,
-      minWidth: 220
+      minWidth: Platform.OS === "android" ? 0 : 220
     },
     selectedDateText: {
       flex: 1,
@@ -1068,28 +986,10 @@ function createStyles(
       paddingHorizontal: spacing.sm,
       paddingVertical: 7
     },
-    dateArrowButton: {
-      width: 34,
-      minHeight: 32,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: colors.primaryBlueSoft,
-      backgroundColor: colors.primaryBlueUltraSoft,
-      alignItems: "center",
-      justifyContent: "center"
-    },
-    dateArrowButtonPressed: {
-      transform: [{ translateY: 1 }]
-    },
-    dateArrowText: {
-      color: colors.primaryBlueDark,
-      fontSize: 16,
-      fontWeight: "900"
-    },
     dateButtonRow: {
       flexDirection: "row",
       flexWrap: "wrap",
-      justifyContent: "flex-end",
+      justifyContent: Platform.OS === "android" ? "flex-start" : "flex-end",
       gap: spacing.xs
     },
     clearDateText: {

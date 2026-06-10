@@ -4,6 +4,7 @@ import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import { getCalendarDay } from "../api/calendar.api";
+import { getNotifications } from "../api/notifications.api";
 import {
   createHabit,
   deleteHabit,
@@ -26,17 +27,16 @@ import { useAppTheme } from "../theme/useAppTheme";
 import { getErrorMessage } from "../types/api";
 import type { CreateHabitPayload, Habit, HabitRecurrenceType, HabitStatus } from "../types/habit";
 import type { MainTabParamList } from "../types/navigation";
-import type { LocalReminderRecord, ScheduleReminderResult } from "../types/notification";
+import type { NotificationItem } from "../types/notification";
 import { formatLocalDate } from "../utils/date";
+import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
-import { notifyDashboardChanged } from "../services/appEvents";
+import { notifyDashboardChanged, notifyNotificationsChanged } from "../services/appEvents";
 import {
-  cancelLocalNotification,
   checkNotificationAvailability,
-  getLocalRemindersByType,
-  scheduleHabitReminder
+  syncNotificationSchedules
 } from "../services/notifications";
-import { formatTimeForDisplay, formatTimeRangeForDisplay, normalizeTimeForInput, timeToMinutes } from "../utils/time";
+import { formatTimeRangeForDisplay, normalizeTimeForInput, timeToMinutes } from "../utils/time";
 
 type HabitFilter = "active" | "logged" | "not_logged" | "archived";
 
@@ -133,8 +133,8 @@ function habitToForm(habit: Habit): HabitFormState {
       rule?.days
         .map((day) => day.day_of_week)
         .filter((day): day is number => typeof day === "number") ?? [],
-    reminder_enabled: false,
-    reminder_time: "09:00"
+    reminder_enabled: Boolean(habit.reminder_enabled),
+    reminder_time: normalizeTimeForInput(habit.reminder_time) || "09:00"
   };
 }
 
@@ -153,6 +153,8 @@ function formToPayload(form: HabitFormState, status: HabitStatus = "active"): Cr
     end_date: form.has_end_date ? cleanOptional(form.end_date) : null,
     start_time: cleanOptional(form.start_time),
     end_time: cleanOptional(form.end_time),
+    reminder_enabled: form.reminder_enabled,
+    reminder_time: form.reminder_enabled ? cleanOptional(form.reminder_time) : null,
     status,
     emoji: cleanOptional(form.emoji),
     color: cleanOptional(form.color),
@@ -202,16 +204,24 @@ function parseReminderTime(value: string): { hour: number; minute: number } | nu
   };
 }
 
-function mergeReminderIntoForm(form: HabitFormState, reminder?: LocalReminderRecord): HabitFormState {
+function mergeReminderIntoForm(form: HabitFormState, reminder?: NotificationItem): HabitFormState {
   if (!reminder) {
     return form;
   }
 
   return {
     ...form,
-    reminder_enabled: true,
-    reminder_time: reminder.scheduled_time ?? reminder.reminder_time
+    reminder_enabled: true
   };
+}
+
+function getNotificationScheduledTime(notification: NotificationItem): number {
+  return new Date(notification.scheduled_for).getTime();
+}
+
+function formatNotificationDateTime(value: string): string {
+  const normalized = value.replace("T", " ");
+  return normalized.length >= 16 ? normalized.slice(0, 16) : normalized;
 }
 
 function isDateOnOrAfter(value: string, minimum: string): boolean {
@@ -226,6 +236,7 @@ export default function HabitsScreen() {
   const { colors, spacing } = useAppTheme();
   const { t } = useTranslation();
   const { settings } = useSettings();
+  const { user } = useAuth();
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList, "Habits">>();
   const route = useRoute<RouteProp<MainTabParamList, "Habits">>();
   const styles = useMemo(() => createStyles(colors, spacing), [colors, spacing]);
@@ -235,7 +246,7 @@ export default function HabitsScreen() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [streaks, setStreaks] = useState<Record<string, number>>({});
   const [loggedByDate, setLoggedByDate] = useState<Record<string, boolean>>({});
-  const [habitReminders, setHabitReminders] = useState<Record<string, LocalReminderRecord>>({});
+  const [habitReminders, setHabitReminders] = useState<Record<string, NotificationItem>>({});
   const [form, setForm] = useState<HabitFormState>(() => getDefaultForm());
   const [editingHabitId, setEditingHabitId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState<boolean>(false);
@@ -252,7 +263,9 @@ export default function HabitsScreen() {
   }, [viewDate]);
 
   const sortedHabits = useMemo(() => sortHabits(habits, loggedByDate), [habits, loggedByDate]);
-  const activeHabits = sortedHabits.filter((habit) => habit.status === "active" && isHabitActiveOnDate(habit, viewDate));
+  const activeHabits = sortedHabits.filter(
+    (habit) => habit.status === "active" && (!selectedDate || isHabitActiveOnDate(habit, selectedDate))
+  );
   const archivedHabits = sortedHabits.filter((habit) => habit.status === "archived");
   const loggedHabits = activeHabits.filter((habit) => loggedByDate[habit.habit_id]);
   const notLoggedHabits = activeHabits.filter((habit) => !loggedByDate[habit.habit_id]);
@@ -273,6 +286,29 @@ export default function HabitsScreen() {
   }, [activeFilter, activeHabits, archivedHabits, loggedHabits, notLoggedHabits]);
   const notificationAvailability = useMemo(() => checkNotificationAvailability(), []);
 
+  function mapHabitNotifications(items: NotificationItem[]): Record<string, NotificationItem> {
+    const reminders: Record<string, NotificationItem> = {};
+    const now = Date.now();
+
+    for (const notification of items) {
+      const scheduledAt = getNotificationScheduledTime(notification);
+
+      if (
+        notification.related_type === "habit" &&
+        notification.related_id &&
+        notification.status === "scheduled" &&
+        !Number.isNaN(scheduledAt) &&
+        scheduledAt > now &&
+        (!reminders[notification.related_id] ||
+          scheduledAt < getNotificationScheduledTime(reminders[notification.related_id]))
+      ) {
+        reminders[notification.related_id] = notification;
+      }
+    }
+
+    return reminders;
+  }
+
   const recurrenceOptions: Array<{ key: HabitRecurrenceType; label: string }> = [
     { key: "daily", label: t("habits.recurrenceDaily") },
     { key: "specific_weekdays", label: t("habits.recurrenceSpecificWeekdays") },
@@ -285,14 +321,14 @@ export default function HabitsScreen() {
     try {
       setError("");
       setLoading(true);
-      const [habitResponse, dayResponse, reminders] = await Promise.all([
+      const [habitResponse, dayResponse, notificationResponse] = await Promise.all([
         getHabits(),
         getCalendarDay(viewDate),
-        getLocalRemindersByType("habit")
+        getNotifications({ status: "scheduled" })
       ]);
       const items = habitResponse.items || [];
       setHabits(items);
-      setHabitReminders(reminders);
+      setHabitReminders(mapHabitNotifications(notificationResponse.items || []));
       setLoggedByDate(Object.fromEntries(dayResponse.habits.map((habit) => [habit.habit_id, habit.completed])));
 
       const streakEntries = await Promise.all(
@@ -338,88 +374,30 @@ export default function HabitsScreen() {
     setFormOpen(true);
   }
 
-  function getReminderStatusMessage(result: ScheduleReminderResult): string {
-    if (!settings.notifications_enabled) {
-      return t("notifications.disabledInSettings");
+  async function syncHabitNotifications(): Promise<void> {
+    const notificationResponse = await getNotifications({ status: "scheduled" });
+    setHabitReminders(mapHabitNotifications(notificationResponse.items || []));
+
+    if (user) {
+      await syncNotificationSchedules(user.user_id, notificationResponse.items || [], settings.notifications_enabled);
     }
 
-    if (result.ok) {
-      return t("notifications.reminderScheduled");
-    }
-
-    if (result.reason === "permission_denied") {
-      return t("notifications.permissionDenied");
-    }
-
-    if (result.reason === "unsupported") {
-      return notificationAvailability.reason === "web_unsupported"
-        ? t("notifications.webUnsupported")
-        : t("notifications.reminderUnsupported");
-    }
-
-    return t("notifications.invalidDateTime");
+    notifyNotificationsChanged();
   }
 
-  async function refreshHabitReminders(): Promise<void> {
-    const reminders = await getLocalRemindersByType("habit");
-    setHabitReminders(reminders);
-  }
-
-  async function syncHabitReminder(habit: Habit): Promise<void> {
-    if (!form.reminder_enabled) {
-      await cancelLocalNotification("habit", habit.habit_id);
-      setReminderMessage("");
-      await refreshHabitReminders();
-      return;
+  useEffect(() => {
+    if (!user) {
+      return undefined;
     }
 
-    if (habit.status !== "active") {
-      await cancelLocalNotification("habit", habit.habit_id);
-      setReminderMessage(t("notifications.onlyActiveHabits"));
-      await refreshHabitReminders();
-      return;
-    }
+    const intervalId = setInterval(() => {
+      void getNotifications({ status: "scheduled" })
+        .then((notificationResponse) => setHabitReminders(mapHabitNotifications(notificationResponse.items || [])))
+        .catch(() => undefined);
+    }, 30000);
 
-    if (habit.end_date && habit.end_date < today) {
-      await cancelLocalNotification("habit", habit.habit_id);
-      setReminderMessage(t("notifications.onlyActiveHabits"));
-      await refreshHabitReminders();
-      return;
-    }
-
-    if (form.recurrence_type !== "daily") {
-      await cancelLocalNotification("habit", habit.habit_id);
-      setReminderMessage(t("notifications.dailyHabitsOnly"));
-      await refreshHabitReminders();
-      return;
-    }
-
-    const parsedTime = parseReminderTime(form.reminder_time);
-
-    if (!parsedTime) {
-      setReminderMessage(t("notifications.invalidDateTime"));
-      return;
-    }
-
-    const result = await scheduleHabitReminder({
-      habitId: habit.habit_id,
-      title: t("notifications.habitNotificationTitle"),
-      body: t("notifications.habitStandardReminderBody", { title: habit.title }),
-      reminderTime: form.reminder_time,
-      hour: parsedTime.hour,
-      minute: parsedTime.minute,
-      overdueWarningTitle: t("notifications.overdueWarningTitle"),
-      overdueWarningBodies: {
-        30: t("notifications.habitOverdueWarning30", { title: habit.title }),
-        15: t("notifications.habitOverdueWarning15", { title: habit.title }),
-        5: t("notifications.habitOverdueWarning5", { title: habit.title })
-      },
-      deviceNotificationsEnabled: settings.notifications_enabled
-    });
-
-    setReminderMessage(getReminderStatusMessage(result));
-    await refreshHabitReminders();
-  }
+    return () => clearInterval(intervalId);
+  }, [user]);
 
   async function confirmAction(title: string, message: string, confirmLabel: string): Promise<boolean> {
     if (Platform.OS === "web") {
@@ -470,6 +448,11 @@ export default function HabitsScreen() {
         return;
       }
 
+      if (payload.reminder_enabled && !parseReminderTime(form.reminder_time)) {
+        setFormError(t("notifications.invalidDateTime"));
+        return;
+      }
+
       const startMinutes = timeToMinutes(payload.start_time);
       const endMinutes = timeToMinutes(payload.end_time);
 
@@ -478,9 +461,9 @@ export default function HabitsScreen() {
         return;
       }
 
-      const response = editingHabitId ? await updateHabit(editingHabitId, payload) : await createHabit(payload);
-      await syncHabitReminder(response.habit);
+      editingHabitId ? await updateHabit(editingHabitId, payload) : await createHabit(payload);
       await loadHabits();
+      await syncHabitNotifications();
       notifyDashboardChanged();
       closeForm();
     } catch (err: unknown) {
@@ -496,6 +479,7 @@ export default function HabitsScreen() {
       setError("");
       await action();
       await loadHabits();
+      await syncHabitNotifications();
       notifyDashboardChanged();
     } catch (err: unknown) {
       Alert.alert(t("habits.errorTitle"), getErrorMessage(err));
@@ -511,8 +495,6 @@ export default function HabitsScreen() {
 
     await runHabitAction(habitId, async () => {
       await logHabit(habitId, { date: viewDate });
-      await cancelLocalNotification("habit", habitId);
-      await refreshHabitReminders();
     });
   }
 
@@ -530,8 +512,6 @@ export default function HabitsScreen() {
     const payload = formToPayload(habitToForm(habit), "archived");
     await runHabitAction(habit.habit_id, async () => {
       await updateHabit(habit.habit_id, payload);
-      await cancelLocalNotification("habit", habit.habit_id);
-      await refreshHabitReminders();
     });
   }
 
@@ -557,8 +537,6 @@ export default function HabitsScreen() {
 
     await runHabitAction(habit.habit_id, async () => {
       await deleteHabit(habit.habit_id);
-      await cancelLocalNotification("habit", habit.habit_id);
-      await refreshHabitReminders();
     });
   }
 
@@ -655,8 +633,8 @@ export default function HabitsScreen() {
             {habit.description ? <Text style={styles.itemDescription}>{habit.description}</Text> : null}
             {habitReminders[habit.habit_id] ? (
               <Text style={styles.reminderMeta}>
-                {t("notifications.dailyReminderSetFor", {
-                  time: formatTimeForDisplay(habitReminders[habit.habit_id].reminder_time, settings.time_format)
+                {t("notifications.nextReminderAt", {
+                  value: formatNotificationDateTime(habitReminders[habit.habit_id].scheduled_for)
                 })}
               </Text>
             ) : null}
@@ -885,13 +863,11 @@ export default function HabitsScreen() {
                       );
                     })}
                   </View>
-                  {form.recurrence_type === "daily" ? (
-                    <Text style={styles.settingHint}>{t("habits.dailySupportedNote")}</Text>
-                  ) : form.recurrence_type === "x_times_per_week" || form.recurrence_type === "x_times_per_month" ? (
+                  {form.recurrence_type === "x_times_per_week" || form.recurrence_type === "x_times_per_month" ? (
                     <Text style={styles.settingWarning}>{t("habits.weeklyMonthlyStreakNote")}</Text>
-                  ) : (
+                  ) : form.recurrence_type !== "daily" ? (
                     <Text style={styles.settingHint}>{t("habits.advancedRecurrenceNote")}</Text>
-                  )}
+                  ) : null}
                 </View>
 
                 {form.recurrence_type === "specific_weekdays" ? (
@@ -998,14 +974,29 @@ export default function HabitsScreen() {
           </View>
         </View>
 
-        {selectedDate ? (
-          <View style={styles.selectedDateRow}>
-            <Text style={styles.selectedDateText}>{t("habits.selectedDate", { date: selectedDate })}</Text>
+        <View style={styles.selectedDateRow}>
+          <View style={styles.selectedDateField}>
+            <DateField
+              label={t("tasks.date")}
+              value={selectedDate ?? ""}
+              onChange={(value) => navigation.setParams({ selectedDate: value || undefined })}
+              placeholder={t("tasks.dateFilterAll")}
+              clearLabel={t("common.clear")}
+              todayLabel={t("common.today")}
+              doneLabel={t("common.done")}
+              previousLabel={t("calendar.previous")}
+              nextLabel={t("calendar.next")}
+            />
+          </View>
+          <View style={styles.dateButtonRow}>
+            <Pressable onPress={() => navigation.setParams({ selectedDate: today })} style={styles.clearDateButton}>
+              <Text style={styles.clearDateText}>{t("common.today")}</Text>
+            </Pressable>
             <Pressable onPress={() => navigation.setParams({ selectedDate: undefined })} style={styles.clearDateButton}>
               <Text style={styles.clearDateText}>{t("tasks.allDates")}</Text>
             </Pressable>
           </View>
-        ) : null}
+        </View>
 
         <View style={styles.filterRow}>
           {[
@@ -1105,8 +1096,8 @@ function createStyles(
       fontWeight: "700"
     },
     selectedDateRow: {
-      flexDirection: "row",
-      alignItems: "center",
+      flexDirection: Platform.OS === "android" ? "column" : "row",
+      alignItems: Platform.OS === "android" ? "stretch" : "center",
       justifyContent: "space-between",
       gap: spacing.sm,
       borderRadius: 8,
@@ -1114,6 +1105,10 @@ function createStyles(
       borderColor: colors.border,
       backgroundColor: colors.surface,
       padding: spacing.sm
+    },
+    selectedDateField: {
+      flex: 1,
+      minWidth: Platform.OS === "android" ? 0 : 220
     },
     selectedDateText: {
       flex: 1,
@@ -1128,6 +1123,12 @@ function createStyles(
       backgroundColor: colors.primaryBlueUltraSoft,
       paddingHorizontal: spacing.sm,
       paddingVertical: 7
+    },
+    dateButtonRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: Platform.OS === "android" ? "flex-start" : "flex-end",
+      gap: spacing.xs
     },
     clearDateText: {
       color: colors.primaryBlueDark,

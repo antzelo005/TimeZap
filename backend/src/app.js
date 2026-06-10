@@ -7,6 +7,7 @@ const habitsRoutes = require("./routes/habits.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const calendarRoutes = require("./routes/calendar.routes");
 const settingsRoutes = require("./routes/settings.routes");
+const notificationsRoutes = require("./routes/notifications.routes");
 const errorMiddleware = require("./middleware/error.middleware");
 
 const app = express();
@@ -40,6 +41,7 @@ app.use("/api/habits", habitsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/calendar", calendarRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/notifications", notificationsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
