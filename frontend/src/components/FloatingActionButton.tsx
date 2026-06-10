@@ -1,20 +1,21 @@
 import React from "react";
 import type { StyleProp, ViewStyle } from "react-native";
-import { Pressable, StyleSheet, Text } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "../theme/useAppTheme";
+import TimeZapIcon, { type TimeZapIconName } from "./icons/TimeZapIcon";
 
 interface FloatingActionButtonProps {
   onPress: () => void;
   label: string;
-  icon?: string;
+  icon?: TimeZapIconName;
   style?: StyleProp<ViewStyle>;
 }
 
 export default function FloatingActionButton({
   onPress,
   label,
-  icon = "+",
+  icon = "plus",
   style
 }: FloatingActionButtonProps) {
   const { colors, spacing } = useAppTheme();
@@ -34,7 +35,7 @@ export default function FloatingActionButton({
         style
       ]}
     >
-      <Text style={styles.icon}>{icon}</Text>
+      <TimeZapIcon name={icon} size={30} color={colors.textOnPrimary} secondaryColor={colors.textOnPrimary} strokeWidth={2.8} />
     </Pressable>
   );
 }
@@ -64,11 +65,5 @@ function createStyles(
     pressed: {
       transform: [{ translateY: 1 }]
     },
-    icon: {
-      color: colors.textOnPrimary,
-      fontSize: 32,
-      lineHeight: 34,
-      fontWeight: "600"
-    }
   });
 }

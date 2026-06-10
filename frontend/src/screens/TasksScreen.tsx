@@ -14,6 +14,7 @@ import ScreenContainer from "../components/ScreenContainer";
 import TimeField from "../components/TimeField";
 import { getNotifications } from "../api/notifications.api";
 import { completeTask, createTask, deleteTask, getTasks, updateTask } from "../api/tasks.api";
+import { normalizeTimeZapIconName } from "../components/icons";
 import type { CreateTaskPayload, Task } from "../types/task";
 import type { MainTabParamList } from "../types/navigation";
 import { getErrorMessage } from "../types/api";
@@ -65,7 +66,7 @@ function getEmptyForm(): TaskFormState {
     start_time: "09:00",
     end_time: "10:00",
     is_all_day: false,
-    emoji: "zap",
+    emoji: "task",
     color: "#2563EB",
     reminder_enabled: false,
     reminder_date: "",
@@ -83,7 +84,7 @@ function taskToForm(task: Task): TaskFormState {
     start_time: normalizeTimeForInput(task.start_time || task.due_time),
     end_time: normalizeTimeForInput(task.end_time),
     is_all_day: task.is_all_day,
-    emoji: task.emoji ?? "zap",
+    emoji: normalizeTimeZapIconName(task.emoji, "task"),
     color: task.color ?? "#2563EB",
     reminder_enabled: Boolean(task.reminder_enabled),
     reminder_date: "",
@@ -551,7 +552,7 @@ export default function TasksScreen() {
         style={[styles.itemCard, isOverdue ? styles.itemCardOverdue : null, isCompleted ? styles.itemCardCompleted : null]}
       >
         <View style={styles.itemHeader}>
-          <IconBadge iconId={task.emoji} color={task.color} />
+          <IconBadge iconId={task.emoji} color={task.color} fallbackIcon="task" />
           <View style={styles.itemText}>
             <Text style={[styles.itemTitle, isCompleted ? styles.itemTitleMuted : null]}>{task.title}</Text>
             {task.description ? <Text style={styles.itemDescription}>{task.description}</Text> : null}
@@ -892,6 +893,7 @@ export default function TasksScreen() {
           </View>
           {visibleTasks.length === 0 ? (
             <EmptyState
+              icon={activeFilter === "completed" ? "task" : activeFilter === "overdue" ? "calendar" : "emptyTasks"}
               title={
                 activeFilter === "completed"
                   ? t("tasks.noCompletedTasks")

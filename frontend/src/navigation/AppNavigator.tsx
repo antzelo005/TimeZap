@@ -5,6 +5,8 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import NotificationBell from "../components/NotificationBell";
+import StreakBadge from "../components/StreakBadge";
+import TimeZapIcon, { type TimeZapIconName } from "../components/icons/TimeZapIcon";
 import { getDashboardToday } from "../api/dashboard.api";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
@@ -46,9 +48,7 @@ function TitleWithZap({ title }: TitleWithZapProps) {
           borderColor: colors.zapYellow
         }}
       >
-        <Text style={{ color: colors.primaryBlueDark, fontSize: 12, fontWeight: "800" }}>
-          {"\u26A1"}
-        </Text>
+        <TimeZapIcon name="zap" size={15} color={colors.warning} secondaryColor={colors.zapYellow} />
       </View>
       <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: "700" }}>{title}</Text>
     </View>
@@ -56,12 +56,12 @@ function TitleWithZap({ title }: TitleWithZapProps) {
 }
 
 interface TabIconProps {
-  icon: string;
+  icon: TimeZapIconName;
   color: string;
 }
 
 function TabIcon({ icon, color }: TabIconProps) {
-  return <Text style={{ fontSize: 18, color, fontWeight: "800" }}>{icon}</Text>;
+  return <TimeZapIcon name={icon} size={21} color={color} secondaryColor={color} strokeWidth={2.2} />;
 }
 
 function HeaderStatus() {
@@ -109,22 +109,13 @@ function HeaderStatus() {
     <View style={styles.row}>
       <View style={styles.summaryWrap}>
         <Text style={styles.summaryChip}>
-          {isCompact ? "\u2713 " : ""}
           {tasksLabel}
         </Text>
         <Text style={styles.summaryChip}>
-          {isCompact ? "\u21BB " : ""}
           {habitsLabel}
         </Text>
       </View>
-      <View style={[styles.streakBadge, streak > 0 ? styles.streakBadgeActive : styles.streakBadgeInactive]}>
-        <Text style={[styles.streakIcon, streak > 0 ? styles.streakIconActive : styles.streakIconInactive]}>
-          {"\u26A1"}
-        </Text>
-        <Text style={[styles.streakCount, streak > 0 ? styles.streakCountActive : styles.streakCountInactive]}>
-          {streak}
-        </Text>
-      </View>
+      <StreakBadge count={streak} compact />
       <NotificationBell />
     </View>
   );
@@ -222,7 +213,7 @@ function MainNavigator() {
         options={{
           title: t("tabs.dashboard"),
           tabBarLabel: t("tabs.dashboard"),
-          tabBarIcon: ({ color }) => <TabIcon icon={"\u26A1"} color={color} />
+          tabBarIcon: ({ color }) => <TabIcon icon="zap" color={color} />
         }}
       />
       <MainTabs.Screen
@@ -231,7 +222,7 @@ function MainNavigator() {
         options={{
           title: t("tabs.tasks"),
           tabBarLabel: t("tabs.tasks"),
-          tabBarIcon: ({ color }) => <TabIcon icon={"\u2713"} color={color} />
+          tabBarIcon: ({ color }) => <TabIcon icon="task" color={color} />
         }}
       />
       <MainTabs.Screen
@@ -240,7 +231,7 @@ function MainNavigator() {
         options={{
           title: t("tabs.habits"),
           tabBarLabel: t("tabs.habits"),
-          tabBarIcon: ({ color }) => <TabIcon icon={"\u21BB"} color={color} />
+          tabBarIcon: ({ color }) => <TabIcon icon="habit" color={color} />
         }}
       />
       <MainTabs.Screen
@@ -249,7 +240,7 @@ function MainNavigator() {
         options={{
           title: t("tabs.calendar"),
           tabBarLabel: t("tabs.calendar"),
-          tabBarIcon: ({ color }) => <TabIcon icon={"\u25A3"} color={color} />
+          tabBarIcon: ({ color }) => <TabIcon icon="calendar" color={color} />
         }}
       />
       <MainTabs.Screen
@@ -258,7 +249,7 @@ function MainNavigator() {
         options={{
           title: t("tabs.account"),
           tabBarLabel: t("tabs.account"),
-          tabBarIcon: ({ color }) => <TabIcon icon={"\u25CF"} color={color} />
+          tabBarIcon: ({ color }) => <TabIcon icon="account" color={color} />
         }}
       />
     </MainTabs.Navigator>
@@ -299,44 +290,5 @@ function createHeaderStyles(
       paddingHorizontal: spacing.sm,
       paddingVertical: 5
     },
-    streakBadge: {
-      minWidth: 42,
-      height: 34,
-      borderRadius: 999,
-      borderWidth: 1,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 4,
-      paddingHorizontal: spacing.sm
-    },
-    streakBadgeActive: {
-      backgroundColor: colors.zapYellowSoft,
-      borderColor: colors.zapYellow
-    },
-    streakBadgeInactive: {
-      backgroundColor: colors.surfaceMuted,
-      borderColor: colors.border
-    },
-    streakIcon: {
-      fontSize: 13,
-      fontWeight: "900"
-    },
-    streakIconActive: {
-      color: colors.warning
-    },
-    streakIconInactive: {
-      color: colors.textMuted
-    },
-    streakCount: {
-      fontSize: 13,
-      fontWeight: "900"
-    },
-    streakCountActive: {
-      color: colors.primaryBlueDark
-    },
-    streakCountInactive: {
-      color: colors.textSecondary
-    }
   });
 }

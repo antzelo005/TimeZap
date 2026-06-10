@@ -23,6 +23,7 @@ import IconColorPicker, { IconBadge } from "../components/IconColorPicker";
 import ScreenContainer from "../components/ScreenContainer";
 import TimeField from "../components/TimeField";
 import { useTranslation } from "../i18n";
+import { normalizeTimeZapIconName } from "../components/icons";
 import { useAppTheme } from "../theme/useAppTheme";
 import { getErrorMessage } from "../types/api";
 import type { CreateHabitPayload, Habit, HabitRecurrenceType, HabitStatus } from "../types/habit";
@@ -74,7 +75,7 @@ function getDefaultForm(): HabitFormState {
     has_end_date: false,
     start_time: "09:00",
     end_time: "10:00",
-    emoji: "zap",
+    emoji: "habit",
     color: "#2563EB",
     recurrence_type: "daily",
     interval_value: "1",
@@ -123,7 +124,7 @@ function habitToForm(habit: Habit): HabitFormState {
     has_end_date: Boolean(habit.end_date),
     start_time: normalizeTimeForInput(habit.start_time),
     end_time: normalizeTimeForInput(habit.end_time),
-    emoji: habit.emoji ?? "zap",
+    emoji: normalizeTimeZapIconName(habit.emoji, "habit"),
     color: habit.color ?? "#2563EB",
     recurrence_type: rule?.recurrence_type ?? "daily",
     interval_value: String(rule?.interval_value ?? 1),
@@ -627,7 +628,7 @@ export default function HabitsScreen() {
     return (
       <View key={habit.habit_id} style={[styles.itemCard, isArchived ? styles.itemCardArchived : null]}>
         <View style={styles.itemHeader}>
-          <IconBadge iconId={habit.emoji} color={habit.color} />
+          <IconBadge iconId={habit.emoji} color={habit.color} fallbackIcon="habit" />
           <View style={styles.itemText}>
             <Text style={[styles.itemTitle, isArchived ? styles.itemTitleMuted : null]}>{habit.title}</Text>
             {habit.description ? <Text style={styles.itemDescription}>{habit.description}</Text> : null}
@@ -1036,6 +1037,7 @@ export default function HabitsScreen() {
           {visibleHabits.length === 0 ? (
             <EmptyState
               accent="yellow"
+              icon={activeFilter === "archived" ? "flame" : "emptyHabits"}
               title={getEmptyMessage()}
               message={activeFilter === "not_logged" ? t("habits.noHabitsToLog") : t("habits.createFirstHabit")}
               actionLabel={activeFilter === "active" ? t("habits.addHabit") : undefined}

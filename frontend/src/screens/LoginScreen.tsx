@@ -12,6 +12,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
 import ScreenContainer from "../components/ScreenContainer";
+import TimeZapIcon from "../components/icons/TimeZapIcon";
 import { useAuth } from "../context/AuthContext";
 import { useAppTheme } from "../theme/useAppTheme";
 import type { AuthCredentials } from "../types/auth";
@@ -57,7 +58,7 @@ export default function LoginScreen({ navigation }: Props) {
             <View style={styles.hero}>
               <View style={styles.brandRow}>
                 <View style={styles.zapBadge}>
-                  <Text style={styles.zapText}>{"\u26A1"}</Text>
+                  <TimeZapIcon name="zap" size={18} color={colors.warning} secondaryColor={colors.zapYellow} />
                 </View>
                 <Text style={styles.eyebrow}>{t("login.eyebrow")}</Text>
               </View>
@@ -140,11 +141,6 @@ function createStyles(
       backgroundColor: colors.zapYellowSoft,
       borderWidth: 1,
       borderColor: colors.zapYellow
-    },
-    zapText: {
-      color: colors.primaryBlueDark,
-      fontSize: 14,
-      fontWeight: "800"
     },
     eyebrow: {
       fontSize: 13,

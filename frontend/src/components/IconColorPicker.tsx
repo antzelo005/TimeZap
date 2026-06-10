@@ -1,30 +1,34 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useAppTheme } from "../theme/useAppTheme";
+import TimeZapIcon, { normalizeTimeZapIconName, type TimeZapIconName } from "./icons/TimeZapIcon";
 
 export interface TimeZapIconOption {
-  id: string;
-  glyph: string;
+  id: TimeZapIconName;
   label: string;
 }
 
 export const TIMEZAP_ICON_OPTIONS: TimeZapIconOption[] = [
-  { id: "zap", glyph: "\u26A1", label: "Lightning" },
-  { id: "book", glyph: "B", label: "Book" },
-  { id: "water", glyph: "W", label: "Water" },
-  { id: "fitness", glyph: "F", label: "Fitness" },
-  { id: "heart", glyph: "\u2665", label: "Heart" },
-  { id: "briefcase", glyph: "Br", label: "Briefcase" },
-  { id: "code", glyph: "</>", label: "Code" },
-  { id: "study", glyph: "S", label: "Study" },
-  { id: "moon", glyph: "\u25D0", label: "Moon" },
-  { id: "sun", glyph: "\u2600", label: "Sun" },
-  { id: "home", glyph: "H", label: "Home" },
-  { id: "clean", glyph: "\u2715", label: "Cleaning" },
-  { id: "money", glyph: "$", label: "Money" },
-  { id: "music", glyph: "\u266B", label: "Music" },
-  { id: "health", glyph: "+", label: "Health" },
-  { id: "food", glyph: "\u25CF", label: "Food" }
+  { id: "zap", label: "Zap" },
+  { id: "flame", label: "Streak" },
+  { id: "task", label: "Task" },
+  { id: "habit", label: "Habit" },
+  { id: "calendar", label: "Calendar" },
+  { id: "notification", label: "Notification" },
+  { id: "book", label: "Study / book" },
+  { id: "water", label: "Water" },
+  { id: "gym", label: "Gym" },
+  { id: "code", label: "Code" },
+  { id: "moon", label: "Sleep" },
+  { id: "sun", label: "Morning" },
+  { id: "heart", label: "Health" },
+  { id: "money", label: "Money" },
+  { id: "music", label: "Music" },
+  { id: "home", label: "Home" },
+  { id: "cleaning", label: "Cleaning" },
+  { id: "food", label: "Food" },
+  { id: "brain", label: "Focus" },
+  { id: "briefcase", label: "Briefcase" }
 ];
 
 export const TIMEZAP_COLOR_OPTIONS = [
@@ -47,20 +51,23 @@ export const TIMEZAP_COLOR_OPTIONS = [
 ];
 
 export function getTimeZapIcon(iconId?: string | null): TimeZapIconOption {
-  return TIMEZAP_ICON_OPTIONS.find((icon) => icon.id === iconId) ?? TIMEZAP_ICON_OPTIONS[0];
+  const normalized = normalizeTimeZapIconName(iconId);
+  return TIMEZAP_ICON_OPTIONS.find((icon) => icon.id === normalized) ?? TIMEZAP_ICON_OPTIONS[0];
 }
 
 export function IconBadge({
   iconId,
   color,
-  size = 34
+  size = 34,
+  fallbackIcon = "zap"
 }: {
   iconId?: string | null;
   color?: string | null;
   size?: number;
+  fallbackIcon?: TimeZapIconName;
 }) {
   const { colors } = useAppTheme();
-  const icon = getTimeZapIcon(iconId);
+  const iconName = normalizeTimeZapIconName(iconId, fallbackIcon);
   const backgroundColor = color || colors.primaryBlue;
 
   return (
@@ -76,15 +83,13 @@ export function IconBadge({
         borderColor: colors.surface
       }}
     >
-      <Text
-        style={{
-          color: colors.textOnPrimary,
-          fontSize: icon.glyph.length > 1 ? Math.max(10, size * 0.28) : Math.max(14, size * 0.46),
-          fontWeight: "900"
-        }}
-      >
-        {icon.glyph}
-      </Text>
+      <TimeZapIcon
+        name={iconName}
+        size={Math.max(16, Math.round(size * 0.58))}
+        color={colors.textOnPrimary}
+        secondaryColor={colors.textOnPrimary}
+        strokeWidth={2.2}
+      />
     </View>
   );
 }
@@ -108,6 +113,7 @@ export default function IconColorPicker({
 }: IconColorPickerProps) {
   const { colors, spacing } = useAppTheme();
   const styles = createStyles(colors, spacing);
+  const selectedIcon = normalizeTimeZapIconName(icon);
 
   return (
     <View style={styles.container}>
@@ -115,7 +121,7 @@ export default function IconColorPicker({
         <Text style={styles.label}>{iconLabel}</Text>
         <View style={styles.grid}>
           {TIMEZAP_ICON_OPTIONS.map((option) => {
-            const isSelected = option.id === icon;
+            const isSelected = option.id === selectedIcon;
             return (
               <Pressable
                 key={option.id}

@@ -12,6 +12,7 @@ import { useAppTheme } from "../theme/useAppTheme";
 import { getErrorMessage } from "../types/api";
 import type { NotificationItem, NotificationKind } from "../types/notification";
 import AppButton from "./AppButton";
+import TimeZapIcon from "./icons/TimeZapIcon";
 
 interface NotificationCenterItem {
   id: string;
@@ -258,7 +259,7 @@ export default function NotificationBell() {
         onPress={() => void openCenter()}
         style={({ pressed }) => [styles.bellButton, pressed ? styles.pressed : null]}
       >
-        <Text style={styles.bellIcon}>{"\u25CF"}</Text>
+        <TimeZapIcon name="notification" size={20} color={colors.primaryBlueDark} secondaryColor={colors.primaryBlueDark} />
         {hasUnread ? <View style={styles.unreadDot} /> : null}
       </Pressable>
 
@@ -305,6 +306,9 @@ export default function NotificationBell() {
             <ScrollView style={styles.listScroll} contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
               {items.length === 0 ? (
                 <View style={styles.empty}>
+                  <View style={styles.emptyIconWrap}>
+                    <TimeZapIcon name="notification" size={28} color={colors.primaryBlueDark} secondaryColor={colors.primaryBlue} />
+                  </View>
                   <Text style={styles.emptyTitle}>{t("notifications.centerEmptyTitle")}</Text>
                   <Text style={styles.emptyText}>{t("notifications.centerEmptyMessage")}</Text>
                 </View>
@@ -361,11 +365,6 @@ function createStyles(
     },
     pressed: {
       transform: [{ translateY: 1 }]
-    },
-    bellIcon: {
-      color: colors.primaryBlueDark,
-      fontSize: 18,
-      fontWeight: "900"
     },
     unreadDot: {
       position: "absolute",
@@ -508,6 +507,17 @@ function createStyles(
       backgroundColor: colors.surfaceMuted,
       padding: spacing.lg,
       gap: spacing.xs
+    },
+    emptyIconWrap: {
+      width: 48,
+      height: 48,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.primaryBlueUltraSoft,
+      borderWidth: 1,
+      borderColor: colors.primaryBlueSoft,
+      marginBottom: spacing.xs
     },
     emptyTitle: {
       color: colors.textPrimary,

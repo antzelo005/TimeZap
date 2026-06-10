@@ -6,6 +6,7 @@ import type { RouteProp } from "@react-navigation/native";
 import AppButton from "../components/AppButton";
 import DateField from "../components/DateField";
 import ScreenContainer from "../components/ScreenContainer";
+import TimeZapIcon, { type TimeZapIconName } from "../components/icons/TimeZapIcon";
 import { getCalendarDay, getCalendarMonth } from "../api/calendar.api";
 import { useTranslation } from "../i18n";
 import { useSettings } from "../context/SettingsContext";
@@ -96,6 +97,7 @@ function DaySection<T>({
   title,
   items,
   emptyMessage,
+  emptyIcon,
   renderItem,
   onPress,
   colors,
@@ -104,6 +106,7 @@ function DaySection<T>({
   title: string;
   items: T[];
   emptyMessage: string;
+  emptyIcon: TimeZapIconName;
   renderItem: (item: T) => React.ReactNode;
   onPress: () => void;
   colors: ReturnType<typeof useAppTheme>["colors"];
@@ -121,7 +124,16 @@ function DaySection<T>({
         <Text style={styles.detailHeading}>{title}</Text>
         <Text style={styles.detailArrow}>{">"}</Text>
       </View>
-      {items.length === 0 ? <Text style={styles.emptyText}>{emptyMessage}</Text> : items.map(renderItem)}
+      {items.length === 0 ? (
+        <View style={styles.emptyRow}>
+          <View style={styles.emptyIconWrap}>
+            <TimeZapIcon name={emptyIcon} size={22} color={colors.primaryBlueDark} secondaryColor={colors.primaryBlue} />
+          </View>
+          <Text style={styles.emptyText}>{emptyMessage}</Text>
+        </View>
+      ) : (
+        items.map(renderItem)
+      )}
     </Pressable>
   );
 }
@@ -277,6 +289,7 @@ export default function CalendarScreen() {
               title={t("calendar.tasksSection")}
               items={dayData?.tasks ?? []}
               emptyMessage={t("calendar.noTasksForDay")}
+              emptyIcon="emptyTasks"
               colors={colors}
               spacing={spacing}
               onPress={() => navigation.navigate("Tasks", { selectedDate })}
@@ -304,6 +317,7 @@ export default function CalendarScreen() {
               title={t("calendar.habitsSection")}
               items={dayData?.habits ?? []}
               emptyMessage={t("calendar.noHabitsForDay")}
+              emptyIcon="emptyHabits"
               colors={colors}
               spacing={spacing}
               onPress={() => navigation.navigate("Habits", { selectedDate })}
@@ -621,7 +635,26 @@ function createStyles(
       fontSize: 13,
       color: colors.textSecondary
     },
+    emptyRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      padding: spacing.md
+    },
+    emptyIconWrap: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.primaryBlueUltraSoft,
+      borderWidth: 1,
+      borderColor: colors.primaryBlueSoft
+    },
     emptyText: {
+      flex: 1,
       fontSize: 14,
       color: colors.textSecondary
     },

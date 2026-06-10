@@ -1,6 +1,7 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import AppButton from "./AppButton";
+import TimeZapIcon, { type TimeZapIconName } from "./icons/TimeZapIcon";
 import { useAppTheme } from "../theme/useAppTheme";
 
 interface EmptyStateProps {
@@ -9,6 +10,7 @@ interface EmptyStateProps {
   actionLabel?: string;
   onAction?: () => void;
   accent?: "blue" | "yellow";
+  icon?: TimeZapIconName;
 }
 
 export default function EmptyState({
@@ -16,16 +18,23 @@ export default function EmptyState({
   message,
   actionLabel,
   onAction,
-  accent = "blue"
+  accent = "blue",
+  icon = "emptyTasks"
 }: EmptyStateProps) {
   const { colors, spacing } = useAppTheme();
   const styles = createStyles(colors, spacing);
   const isYellow = accent === "yellow";
+  const iconColor = isYellow ? colors.warning : colors.primaryBlueDark;
 
   return (
     <View style={styles.container}>
       <View style={[styles.iconWrap, isYellow ? styles.iconWrapYellow : null]}>
-        <Text style={[styles.icon, isYellow ? styles.iconYellow : null]}>{"\u26A1"}</Text>
+        <TimeZapIcon
+          name={icon}
+          size={30}
+          color={iconColor}
+          secondaryColor={isYellow ? colors.zapYellow : colors.primaryBlue}
+        />
       </View>
       <View style={styles.copy}>
         <Text style={styles.title}>{title}</Text>
@@ -66,14 +75,6 @@ function createStyles(
     iconWrapYellow: {
       backgroundColor: colors.zapYellowSoft,
       borderColor: colors.zapYellow
-    },
-    icon: {
-      color: colors.primaryBlueDark,
-      fontSize: 28,
-      fontWeight: "800"
-    },
-    iconYellow: {
-      color: colors.primaryBlueDark
     },
     copy: {
       alignItems: "center",
