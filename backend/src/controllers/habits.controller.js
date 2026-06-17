@@ -2,6 +2,7 @@ const { pool, query } = require("../config/db");
 const {
   calculateCurrentDailyStreak,
   createAppError,
+  getPeriodBounds,
   getTodayDateString,
   isNonEmptyString,
   parseId,
@@ -25,6 +26,7 @@ const ALLOWED_RECURRENCE_TYPES = [
   "x_times_per_month"
 ];
 const ALLOWED_WEEK_STARTS = ["monday", "sunday"];
+const PERIOD_RECURRENCE_TYPES = ["x_times_per_week", "x_times_per_month"];
 
 function getDefaultTargetPeriod(recurrenceType, providedTargetPeriod) {
   if (providedTargetPeriod) {
@@ -41,6 +43,129 @@ function getDefaultTargetPeriod(recurrenceType, providedTargetPeriod) {
     default:
       return "custom";
   }
+}
+
+function isPeriodProgressHabit(habit) {
+  return Boolean(habit.rule && PERIOD_RECURRENCE_TYPES.includes(habit.rule.recurrence_type));
+}
+
+function getHabitTargetPeriod(habit) {
+  if (!habit.rule) {
+    return null;
+  }
+
+  if (habit.rule.recurrence_type === "x_times_per_week") {
+    return "week";
+  }
+
+  if (habit.rule.recurrence_type === "x_times_per_month") {
+    return "month";
+  }
+
+  return habit.rule.target_period;
+}
+
+function getHabitTargetCount(habit) {
+  const targetCount = Number(habit.rule?.target_count ?? 1);
+  return Number.isInteger(targetCount) && targetCount > 0 ? targetCount : 1;
+}
+
+function buildHabitPeriodMeta(habit, dateString, weekStartsOn) {
+  if (!isPeriodProgressHabit(habit)) {
+    return null;
+  }
+
+  const targetPeriod = getHabitTargetPeriod(habit);
+  const bounds = getPeriodBounds(dateString, targetPeriod, weekStartsOn || habit.rule.week_start || "monday");
+
+  if (!bounds) {
+    return null;
+  }
+
+  return {
+    ...bounds,
+    period_label: targetPeriod,
+    target_count: getHabitTargetCount(habit),
+    target_period: targetPeriod
+  };
+}
+
+function emptyPeriodProgress(habit) {
+  return {
+    ...habit,
+    target_count: habit.rule ? getHabitTargetCount(habit) : null,
+    target_period: habit.rule?.target_period ?? null,
+    period_progress: null,
+    completed_for_period: null,
+    period_label: null
+  };
+}
+
+async function getUserWeekStart(userId) {
+  const settingsResult = await query(
+    `SELECT week_starts_on
+     FROM user_settings
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId]
+  );
+
+  return settingsResult.rows[0]?.week_starts_on || "monday";
+}
+
+async function getHabitPeriodCompletedCount(executor, userId, habitId, startDate, endDate) {
+  const result = await executor.query(
+    `SELECT COALESCE(SUM(completed_count), 0)::int AS period_progress
+     FROM habit_logs
+     WHERE habit_id = $1
+       AND user_id = $2
+       AND log_date BETWEEN $3 AND $4
+       AND status = 'completed'`,
+    [habitId, userId, startDate, endDate]
+  );
+
+  return Number(result.rows[0]?.period_progress ?? 0);
+}
+
+function buildPeriodProgressResponse(habit, meta, periodProgress) {
+  const clampedProgress = Math.min(periodProgress, meta.target_count);
+
+  return {
+    ...habit,
+    target_count: meta.target_count,
+    target_period: meta.target_period,
+    period_progress: clampedProgress,
+    completed_for_period: periodProgress >= meta.target_count,
+    period_label: meta.period_label
+  };
+}
+
+async function attachHabitPeriodProgress(habit, userId, dateString, weekStartsOn) {
+  const meta = buildHabitPeriodMeta(habit, dateString, weekStartsOn);
+
+  if (!meta) {
+    return emptyPeriodProgress(habit);
+  }
+
+  const periodProgress = await getHabitPeriodCompletedCount(
+    { query },
+    userId,
+    habit.habit_id,
+    meta.start_date,
+    meta.end_date
+  );
+
+  return buildPeriodProgressResponse(habit, meta, periodProgress);
+}
+
+function getProgressDateFromRequest(req) {
+  const progressDate = req.query.date || getTodayDateString();
+
+  if (!validateISODate(progressDate)) {
+    throw createAppError(400, "date must be a valid ISO date");
+  }
+
+  return progressDate;
 }
 
 function mapHabitRow(habitRow, ruleRow, dayRows) {
@@ -205,6 +330,8 @@ async function getHabitWithRule(userId, habitId) {
 
 async function getHabits(req, res, next) {
   try {
+    const progressDate = getProgressDateFromRequest(req);
+    const weekStartsOn = await getUserWeekStart(req.user.user_id);
     const habitsResult = await query(
       `SELECT
          habit_id,
@@ -231,7 +358,7 @@ async function getHabits(req, res, next) {
     const habits = [];
     for (const row of habitsResult.rows) {
       const habit = await getHabitWithRule(req.user.user_id, row.habit_id);
-      habits.push(habit);
+      habits.push(await attachHabitPeriodProgress(habit, req.user.user_id, progressDate, weekStartsOn));
     }
 
     res.status(200).json({
@@ -245,6 +372,8 @@ async function getHabits(req, res, next) {
 async function getHabitById(req, res, next) {
   try {
     const habitId = parseId(req.params.id, "Habit ID");
+    const progressDate = getProgressDateFromRequest(req);
+    const weekStartsOn = await getUserWeekStart(req.user.user_id);
     const habit = await getHabitWithRule(req.user.user_id, habitId);
 
     if (!habit) {
@@ -252,7 +381,7 @@ async function getHabitById(req, res, next) {
     }
 
     res.status(200).json({
-      habit
+      habit: await attachHabitPeriodProgress(habit, req.user.user_id, progressDate, weekStartsOn)
     });
   } catch (error) {
     next(error);
@@ -352,7 +481,13 @@ async function createHabit(req, res, next) {
 
     await client.query("COMMIT");
 
-    const habit = await getHabitWithRule(req.user.user_id, habitId);
+    const weekStartsOn = await getUserWeekStart(req.user.user_id);
+    const habit = await attachHabitPeriodProgress(
+      await getHabitWithRule(req.user.user_id, habitId),
+      req.user.user_id,
+      getTodayDateString(),
+      weekStartsOn
+    );
     await createHabitReminderNotifications(req.user.user_id, habit);
 
     res.status(201).json({
@@ -474,7 +609,13 @@ async function updateHabit(req, res, next) {
 
     await client.query("COMMIT");
 
-    const habit = await getHabitWithRule(req.user.user_id, habitId);
+    const weekStartsOn = await getUserWeekStart(req.user.user_id);
+    const habit = await attachHabitPeriodProgress(
+      await getHabitWithRule(req.user.user_id, habitId),
+      req.user.user_id,
+      getTodayDateString(),
+      weekStartsOn
+    );
     await createHabitReminderNotifications(req.user.user_id, habit);
 
     res.status(200).json({
@@ -515,6 +656,122 @@ async function deleteHabit(req, res, next) {
   }
 }
 
+async function logPeriodProgressHabit(req, res, habit, requestedDate) {
+  const habitId = habit.habit_id;
+  const weekStartsOn = await getUserWeekStart(req.user.user_id);
+  const meta = buildHabitPeriodMeta(habit, requestedDate, weekStartsOn);
+
+  if (!meta) {
+    throw createAppError(400, "Habit does not support period progress logging");
+  }
+
+  let client;
+  let log = null;
+  let periodProgress = 0;
+  let completedForPeriod = false;
+
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [habitId]);
+
+    const currentProgress = await getHabitPeriodCompletedCount(
+      client,
+      req.user.user_id,
+      habitId,
+      meta.start_date,
+      meta.end_date
+    );
+
+    if (currentProgress >= meta.target_count) {
+      periodProgress = currentProgress;
+      completedForPeriod = true;
+      await client.query("COMMIT");
+
+      return res.status(200).json({
+        message: `${meta.period_label} target already complete`,
+        log,
+        period_progress: Math.min(periodProgress, meta.target_count),
+        target_count: meta.target_count,
+        completed_for_period: completedForPeriod,
+        period_label: meta.period_label
+      });
+    }
+
+    const existingLog = await client.query(
+      `SELECT habit_log_id, status
+       FROM habit_logs
+       WHERE habit_id = $1 AND user_id = $2 AND log_date = $3
+       ORDER BY habit_log_id DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [habitId, req.user.user_id, requestedDate]
+    );
+
+    if (existingLog.rows.length > 0) {
+      const updated = await client.query(
+        `UPDATE habit_logs
+         SET
+           completed_count = CASE
+             WHEN status = 'completed' THEN completed_count + 1
+             ELSE 1
+           END,
+           target_count_snapshot = $1,
+           status = 'completed',
+           completed_at = COALESCE(completed_at, NOW()),
+           updated_at = NOW()
+         WHERE habit_log_id = $2
+         RETURNING habit_log_id, habit_id, user_id, to_char(log_date, 'YYYY-MM-DD') AS log_date, completed_count, target_count_snapshot, status, completed_at, created_at, updated_at`,
+        [meta.target_count, existingLog.rows[0].habit_log_id]
+      );
+      log = updated.rows[0];
+    } else {
+      const inserted = await client.query(
+        `INSERT INTO habit_logs (
+           habit_id,
+           user_id,
+           log_date,
+           completed_count,
+           target_count_snapshot,
+           status,
+           completed_at,
+           created_at,
+           updated_at
+         ) VALUES ($1, $2, $3, 1, $4, 'completed', NOW(), NOW(), NOW())
+         RETURNING habit_log_id, habit_id, user_id, to_char(log_date, 'YYYY-MM-DD') AS log_date, completed_count, target_count_snapshot, status, completed_at, created_at, updated_at`,
+        [habitId, req.user.user_id, requestedDate, meta.target_count]
+      );
+      log = inserted.rows[0];
+    }
+
+    periodProgress = currentProgress + 1;
+    completedForPeriod = periodProgress >= meta.target_count;
+    await client.query("COMMIT");
+  } catch (error) {
+    if (client) {
+      await client.query("ROLLBACK").catch(() => null);
+    }
+    throw error;
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
+
+  if (completedForPeriod) {
+    await cancelRemainingNotificationsForRelatedDate(req.user.user_id, "habit", habitId, requestedDate);
+  }
+
+  return res.status(201).json({
+    message: "Habit progress logged successfully",
+    log,
+    period_progress: Math.min(periodProgress, meta.target_count),
+    target_count: meta.target_count,
+    completed_for_period: completedForPeriod,
+    period_label: meta.period_label
+  });
+}
+
 async function logHabit(req, res, next) {
   try {
     const habitId = parseId(req.params.id, "Habit ID");
@@ -531,6 +788,10 @@ async function logHabit(req, res, next) {
 
     if (requestedDate < habit.start_date || (habit.end_date && requestedDate > habit.end_date)) {
       throw createAppError(400, "Habit is not active on this date");
+    }
+
+    if (isPeriodProgressHabit(habit)) {
+      return await logPeriodProgressHabit(req, res, habit, requestedDate);
     }
 
     const existingLog = await query(

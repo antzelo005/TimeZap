@@ -53,6 +53,10 @@ export interface CalendarHabitItem {
   end_time?: string | null;
   recurrence_type: string | null;
   target_count: number | null;
+  target_period?: string | null;
+  period_progress?: number | null;
+  completed_for_period?: boolean | null;
+  period_label?: string | null;
   completed: boolean;
   log: CalendarHabitLog | null;
 }

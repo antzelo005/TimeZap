@@ -41,6 +41,11 @@ export interface Habit {
   created_at: string;
   updated_at: string;
   rule: HabitRule | null;
+  target_count?: number | null;
+  target_period?: string | null;
+  period_progress?: number | null;
+  completed_for_period?: boolean | null;
+  period_label?: string | null;
 }
 
 export interface HabitListResponse {
@@ -67,7 +72,11 @@ export interface HabitLog {
 
 export interface HabitLogResponse {
   message: string;
-  log: HabitLog;
+  log: HabitLog | null;
+  period_progress?: number;
+  target_count?: number;
+  completed_for_period?: boolean;
+  period_label?: string;
 }
 
 export interface HabitStreakResponse {

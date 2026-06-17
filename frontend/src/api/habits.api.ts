@@ -9,8 +9,9 @@ import type {
 } from "../types/habit";
 import { apiClient } from "./client";
 
-export function getHabits(): Promise<HabitListResponse> {
-  return apiClient.get<HabitListResponse>("/habits");
+export function getHabits(date?: string): Promise<HabitListResponse> {
+  const query = date ? `?date=${encodeURIComponent(date)}` : "";
+  return apiClient.get<HabitListResponse>(`/habits${query}`);
 }
 
 export function createHabit(payload: CreateHabitPayload): Promise<HabitResponse> {

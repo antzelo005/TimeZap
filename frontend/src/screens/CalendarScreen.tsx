@@ -244,6 +244,25 @@ export default function CalendarScreen() {
     return monthData?.dates[isoDate] ?? null;
   }
 
+  function isPeriodHabit(habit: CalendarHabitItem): boolean {
+    return habit.recurrence_type === "x_times_per_week" || habit.recurrence_type === "x_times_per_month";
+  }
+
+  function getPeriodProgressLabel(habit: CalendarHabitItem): string {
+    const current = habit.period_progress ?? 0;
+    const target = habit.target_count ?? 1;
+
+    if (habit.recurrence_type === "x_times_per_month") {
+      return habit.completed_for_period
+        ? t("habits.completedThisMonth")
+        : t("habits.progressThisMonth", { current, target });
+    }
+
+    return habit.completed_for_period
+      ? t("habits.completedThisWeek")
+      : t("habits.progressThisWeek", { current, target });
+  }
+
   return (
     <ScreenContainer scrollRef={scrollRef}>
       <View style={styles.headerRow}>
@@ -327,13 +346,18 @@ export default function CalendarScreen() {
                     ? `${habit.start_date} -> ${habit.end_date}`
                     : "";
                 const timeRange = formatTimeRangeForDisplay(habit.start_time, habit.end_time, settings.time_format);
+                const statusLabel = isPeriodHabit(habit)
+                  ? getPeriodProgressLabel(habit)
+                  : habit.completed
+                    ? t("common.completed")
+                    : t("common.pending");
 
                 return (
                   <View key={habit.habit_id} style={styles.listItem}>
                     <Text style={styles.listItemTitle}>{habit.title}</Text>
                     <Text style={styles.listItemMeta}>
-                      {habit.completed ? t("common.completed") : t("common.pending")}
-                      {habit.log ? ` / ${habit.log.completed_count}/${habit.log.target_count_snapshot}` : ""}
+                      {statusLabel}
+                      {habit.log && !isPeriodHabit(habit) ? ` / ${habit.log.completed_count}/${habit.log.target_count_snapshot}` : ""}
                       {dateRange ? ` / ${dateRange}` : ""}
                       {timeRange ? ` / ${timeRange}` : ""}
                     </Text>

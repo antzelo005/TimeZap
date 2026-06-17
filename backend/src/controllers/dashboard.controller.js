@@ -1,5 +1,74 @@
 const { query } = require("../config/db");
-const { calculateCurrentDailyStreak, getTodayDateString } = require("../utils/validators");
+const { calculateCurrentDailyStreak, getPeriodBounds, getTodayDateString } = require("../utils/validators");
+
+const PERIOD_RECURRENCE_TYPES = ["x_times_per_week", "x_times_per_month"];
+
+function isPeriodProgressHabit(habit) {
+  return PERIOD_RECURRENCE_TYPES.includes(habit.recurrence_type);
+}
+
+function getHabitTargetPeriod(habit) {
+  if (habit.recurrence_type === "x_times_per_week") {
+    return "week";
+  }
+
+  if (habit.recurrence_type === "x_times_per_month") {
+    return "month";
+  }
+
+  return habit.target_period;
+}
+
+function getHabitTargetCount(habit) {
+  const targetCount = Number(habit.target_count ?? 1);
+  return Number.isInteger(targetCount) && targetCount > 0 ? targetCount : 1;
+}
+
+async function getUserWeekStart(userId) {
+  const settingsResult = await query(
+    `SELECT week_starts_on
+     FROM user_settings
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId]
+  );
+
+  return settingsResult.rows[0]?.week_starts_on || "monday";
+}
+
+async function getHabitPeriodProgress(userId, habit, dateString, weekStartsOn) {
+  if (!isPeriodProgressHabit(habit)) {
+    return {
+      target_count: getHabitTargetCount(habit),
+      target_period: habit.target_period ?? null,
+      period_progress: null,
+      completed_for_period: null,
+      period_label: null
+    };
+  }
+
+  const targetPeriod = getHabitTargetPeriod(habit);
+  const targetCount = getHabitTargetCount(habit);
+  const bounds = getPeriodBounds(dateString, targetPeriod, weekStartsOn || habit.week_start || "monday");
+  const progressResult = await query(
+    `SELECT COALESCE(SUM(completed_count), 0)::int AS period_progress
+     FROM habit_logs
+     WHERE habit_id = $1
+       AND user_id = $2
+       AND log_date BETWEEN $3 AND $4
+       AND status = 'completed'`,
+    [habit.habit_id, userId, bounds.start_date, bounds.end_date]
+  );
+  const periodProgress = Number(progressResult.rows[0]?.period_progress ?? 0);
+
+  return {
+    target_count: targetCount,
+    target_period: targetPeriod,
+    period_progress: Math.min(periodProgress, targetCount),
+    completed_for_period: periodProgress >= targetCount,
+    period_label: targetPeriod
+  };
+}
 
 async function getTodayDashboard(req, res, next) {
   try {
@@ -44,7 +113,9 @@ async function getTodayDashboard(req, res, next) {
          h.emoji,
          h.color,
          hr.recurrence_type,
-         hr.target_count
+         hr.target_count,
+         hr.target_period,
+         hr.week_start
        FROM habits h
        LEFT JOIN habit_rules hr
          ON hr.habit_id = h.habit_id AND hr.is_active = true
@@ -61,14 +132,24 @@ async function getTodayDashboard(req, res, next) {
     );
 
     const completedHabitIds = new Set(habitLogsToday.rows.map((row) => row.habit_id));
+    const weekStartsOn = await getUserWeekStart(req.user.user_id);
     const habitsForToday = habitsResult.rows.filter((habit) => {
       return habit.start_date <= today && (!habit.end_date || habit.end_date >= today);
     });
 
-    const habitItems = habitsForToday.map((habit) => ({
-      ...habit,
-      completed_today: completedHabitIds.has(habit.habit_id)
-    }));
+    const habitItems = [];
+    for (const habit of habitsForToday) {
+      const periodProgress = await getHabitPeriodProgress(req.user.user_id, habit, today, weekStartsOn);
+      const completedForDashboard = isPeriodProgressHabit(habit)
+        ? Boolean(periodProgress.completed_for_period)
+        : completedHabitIds.has(habit.habit_id);
+
+      habitItems.push({
+        ...habit,
+        ...periodProgress,
+        completed_today: completedForDashboard
+      });
+    }
 
     const streaksResult = await query(
       `SELECT hl.habit_id, to_char(hl.log_date, 'YYYY-MM-DD') AS log_date

@@ -176,6 +176,25 @@ export default function DashboardScreen() {
   const weeklyPercent = weeklyTotal > 0 ? Math.round((weeklyCompleted / weeklyTotal) * 100) : 0;
   const displayName = "display_name" in (user ?? {}) ? String((user as { display_name?: string }).display_name ?? "") : "";
 
+  function isPeriodHabit(habit: DashboardHabitItem): boolean {
+    return habit.recurrence_type === "x_times_per_week" || habit.recurrence_type === "x_times_per_month";
+  }
+
+  function getPeriodProgressLabel(habit: DashboardHabitItem): string {
+    const current = habit.period_progress ?? 0;
+    const target = habit.target_count ?? 1;
+
+    if (habit.recurrence_type === "x_times_per_month") {
+      return habit.completed_for_period
+        ? t("habits.completedThisMonth")
+        : t("habits.progressThisMonth", { current, target });
+    }
+
+    return habit.completed_for_period
+      ? t("habits.completedThisWeek")
+      : t("habits.progressThisWeek", { current, target });
+  }
+
   function renderTaskItem(task: Task | DashboardTaskItem, fallbackDate?: string) {
     const time = getTaskTimeLabel(task, settings.time_format);
     const dueDate =
@@ -196,7 +215,11 @@ export default function DashboardScreen() {
   }
 
   function renderHabitItem(habit: DashboardHabitItem) {
-    const statusLabel = habit.completed_today ? t("dashboard.completedToday") : t("habits.notLoggedToday");
+    const statusLabel = isPeriodHabit(habit)
+      ? getPeriodProgressLabel(habit)
+      : habit.completed_today
+        ? t("dashboard.completedToday")
+        : t("habits.notLoggedToday");
     const timeRange = formatTimeRangeForDisplay(habit.start_time, habit.end_time, settings.time_format);
 
     return (

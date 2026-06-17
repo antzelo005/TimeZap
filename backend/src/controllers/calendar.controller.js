@@ -1,5 +1,74 @@
 const { query } = require("../config/db");
-const { createAppError, validateISODate } = require("../utils/validators");
+const { createAppError, getPeriodBounds, validateISODate } = require("../utils/validators");
+
+const PERIOD_RECURRENCE_TYPES = ["x_times_per_week", "x_times_per_month"];
+
+function isPeriodProgressHabit(habit) {
+  return PERIOD_RECURRENCE_TYPES.includes(habit.recurrence_type);
+}
+
+function getHabitTargetPeriod(habit) {
+  if (habit.recurrence_type === "x_times_per_week") {
+    return "week";
+  }
+
+  if (habit.recurrence_type === "x_times_per_month") {
+    return "month";
+  }
+
+  return habit.target_period;
+}
+
+function getHabitTargetCount(habit) {
+  const targetCount = Number(habit.target_count ?? 1);
+  return Number.isInteger(targetCount) && targetCount > 0 ? targetCount : 1;
+}
+
+async function getUserWeekStart(userId) {
+  const settingsResult = await query(
+    `SELECT week_starts_on
+     FROM user_settings
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId]
+  );
+
+  return settingsResult.rows[0]?.week_starts_on || "monday";
+}
+
+async function getHabitPeriodProgress(userId, habit, dateString, weekStartsOn) {
+  if (!isPeriodProgressHabit(habit)) {
+    return {
+      target_count: getHabitTargetCount(habit),
+      target_period: habit.target_period ?? null,
+      period_progress: null,
+      completed_for_period: null,
+      period_label: null
+    };
+  }
+
+  const targetPeriod = getHabitTargetPeriod(habit);
+  const targetCount = getHabitTargetCount(habit);
+  const bounds = getPeriodBounds(dateString, targetPeriod, weekStartsOn || habit.week_start || "monday");
+  const progressResult = await query(
+    `SELECT COALESCE(SUM(completed_count), 0)::int AS period_progress
+     FROM habit_logs
+     WHERE habit_id = $1
+       AND user_id = $2
+       AND log_date BETWEEN $3 AND $4
+       AND status = 'completed'`,
+    [habit.habit_id, userId, bounds.start_date, bounds.end_date]
+  );
+  const periodProgress = Number(progressResult.rows[0]?.period_progress ?? 0);
+
+  return {
+    target_count: targetCount,
+    target_period: targetPeriod,
+    period_progress: Math.min(periodProgress, targetCount),
+    completed_for_period: periodProgress >= targetCount,
+    period_label: targetPeriod
+  };
+}
 
 function normalizeMonthInput(year, month) {
   const yearNumber = Number(year);
@@ -46,7 +115,7 @@ async function getMonthView(req, res, next) {
     const habitLogsResult = await query(
       `SELECT
          to_char(log_date, 'YYYY-MM-DD') AS entry_date,
-         COUNT(*)::int AS completed_count
+         COALESCE(SUM(completed_count), 0)::int AS completed_count
        FROM habit_logs
        WHERE user_id = $1
          AND to_char(log_date, 'YYYY-MM') = $2
@@ -141,7 +210,9 @@ async function getDayView(req, res, next) {
          to_char(h.start_time, 'HH24:MI:SS') AS start_time,
          to_char(h.end_time, 'HH24:MI:SS') AS end_time,
          hr.recurrence_type,
-         hr.target_count
+         hr.target_count,
+         hr.target_period,
+         hr.week_start
        FROM habits h
        LEFT JOIN habit_rules hr
          ON hr.habit_id = h.habit_id AND hr.is_active = true
@@ -151,20 +222,35 @@ async function getDayView(req, res, next) {
     );
 
     const logsResult = await query(
-      `SELECT habit_id, completed_count, target_count_snapshot, status
+      `SELECT
+         habit_id,
+         COALESCE(SUM(completed_count), 0)::int AS completed_count,
+         MAX(target_count_snapshot)::int AS target_count_snapshot,
+         'completed' AS status
        FROM habit_logs
-       WHERE user_id = $1 AND log_date = $2`,
+       WHERE user_id = $1 AND log_date = $2 AND status = 'completed'
+       GROUP BY habit_id`,
       [req.user.user_id, date]
     );
 
     const loggedHabitIds = new Map(logsResult.rows.map((row) => [row.habit_id, row]));
-    const expectedHabits = habitsResult.rows
-      .filter((habit) => habit.start_date <= date && (!habit.end_date || habit.end_date >= date))
-      .map((habit) => ({
+    const weekStartsOn = await getUserWeekStart(req.user.user_id);
+    const expectedHabits = [];
+    for (const habit of habitsResult.rows.filter(
+      (habit) => habit.start_date <= date && (!habit.end_date || habit.end_date >= date)
+    )) {
+      const periodProgress = await getHabitPeriodProgress(req.user.user_id, habit, date, weekStartsOn);
+      const completed = isPeriodProgressHabit(habit)
+        ? Boolean(periodProgress.completed_for_period)
+        : loggedHabitIds.has(habit.habit_id);
+
+      expectedHabits.push({
         ...habit,
-        completed: loggedHabitIds.has(habit.habit_id),
+        ...periodProgress,
+        completed,
         log: loggedHabitIds.get(habit.habit_id) || null
-      }));
+      });
+    }
 
     res.status(200).json({
       date,

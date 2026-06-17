@@ -69,6 +69,56 @@ function shiftDateString(value, dayOffset) {
   return `${shiftedYear}-${shiftedMonth}-${shiftedDay}`;
 }
 
+function parseUTCDate(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatUTCDate(date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getPeriodBounds(dateString, targetPeriod, weekStartsOn = "monday") {
+  if (targetPeriod === "day") {
+    return {
+      start_date: dateString,
+      end_date: dateString
+    };
+  }
+
+  if (targetPeriod === "week") {
+    const date = parseUTCDate(dateString);
+    const weekStartDay = weekStartsOn === "sunday" ? 0 : 1;
+    const startOffset = (date.getUTCDay() - weekStartDay + 7) % 7;
+    const startDate = new Date(date);
+    startDate.setUTCDate(date.getUTCDate() - startOffset);
+
+    const endDate = new Date(startDate);
+    endDate.setUTCDate(startDate.getUTCDate() + 6);
+
+    return {
+      start_date: formatUTCDate(startDate),
+      end_date: formatUTCDate(endDate)
+    };
+  }
+
+  if (targetPeriod === "month") {
+    const [year, month] = dateString.split("-").map(Number);
+    const startDate = new Date(Date.UTC(year, month - 1, 1));
+    const endDate = new Date(Date.UTC(year, month, 0));
+
+    return {
+      start_date: formatUTCDate(startDate),
+      end_date: formatUTCDate(endDate)
+    };
+  }
+
+  return null;
+}
+
 function calculateCurrentDailyStreak(dateStrings, todayString = getTodayDateString()) {
   const completedDates = new Set(dateStrings);
   let cursor = completedDates.has(todayString) ? todayString : shiftDateString(todayString, -1);
@@ -85,6 +135,7 @@ function calculateCurrentDailyStreak(dateStrings, todayString = getTodayDateStri
 module.exports = {
   calculateCurrentDailyStreak,
   createAppError,
+  getPeriodBounds,
   getTodayDateString,
   isNonEmptyString,
   isValidEmail,

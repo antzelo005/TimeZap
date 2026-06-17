@@ -233,6 +233,21 @@ function isHabitActiveOnDate(habit: Habit, date: string): boolean {
   return habit.start_date <= date && (!habit.end_date || habit.end_date >= date);
 }
 
+function isPeriodProgressHabit(habit: Habit): boolean {
+  const recurrenceType = habit.rule?.recurrence_type;
+  return recurrenceType === "x_times_per_week" || recurrenceType === "x_times_per_month";
+}
+
+function getHabitTargetCount(habit: Habit): number {
+  const targetCount = habit.target_count ?? habit.rule?.target_count ?? 1;
+  return Number.isFinite(targetCount) && targetCount > 0 ? targetCount : 1;
+}
+
+function getHabitPeriodProgress(habit: Habit): number {
+  const progress = habit.period_progress ?? 0;
+  return Number.isFinite(progress) && progress > 0 ? progress : 0;
+}
+
 export default function HabitsScreen() {
   const { colors, spacing } = useAppTheme();
   const { t } = useTranslation();
@@ -323,7 +338,7 @@ export default function HabitsScreen() {
       setError("");
       setLoading(true);
       const [habitResponse, dayResponse, notificationResponse] = await Promise.all([
-        getHabits(),
+        getHabits(viewDate),
         getCalendarDay(viewDate),
         getNotifications({ status: "scheduled" })
       ]);
@@ -334,6 +349,10 @@ export default function HabitsScreen() {
 
       const streakEntries = await Promise.all(
         items.map(async (habit) => {
+          if (isPeriodProgressHabit(habit)) {
+            return [habit.habit_id, 0] as const;
+          }
+
           try {
             const streak = await getHabitStreak(habit.habit_id);
             return [habit.habit_id, streak.current_streak] as const;
@@ -489,13 +508,16 @@ export default function HabitsScreen() {
     }
   }
 
-  async function handleLogHabit(habitId: string): Promise<void> {
-    if (loggedByDate[habitId]) {
+  async function handleLogHabit(habit: Habit): Promise<void> {
+    const isPeriodHabit = isPeriodProgressHabit(habit);
+    const isComplete = isPeriodHabit ? Boolean(habit.completed_for_period) : Boolean(loggedByDate[habit.habit_id]);
+
+    if (isComplete) {
       return;
     }
 
-    await runHabitAction(habitId, async () => {
-      await logHabit(habitId, { date: viewDate });
+    await runHabitAction(habit.habit_id, async () => {
+      await logHabit(habit.habit_id, { date: viewDate });
     });
   }
 
@@ -615,10 +637,41 @@ export default function HabitsScreen() {
     }
   }
 
+  function getPeriodStatusLabel(habit: Habit): string {
+    const current = getHabitPeriodProgress(habit);
+    const target = getHabitTargetCount(habit);
+
+    if (habit.rule?.recurrence_type === "x_times_per_month") {
+      return habit.completed_for_period
+        ? t("habits.completedThisMonth")
+        : t("habits.progressThisMonth", { current, target });
+    }
+
+    return habit.completed_for_period
+      ? t("habits.completedThisWeek")
+      : t("habits.progressThisWeek", { current, target });
+  }
+
   function renderHabit(habit: Habit) {
     const isArchived = habit.status === "archived";
-    const isLogged = Boolean(loggedByDate[habit.habit_id]);
+    const isPeriodHabit = isPeriodProgressHabit(habit);
+    const isLogged = isPeriodHabit ? Boolean(habit.completed_for_period) : Boolean(loggedByDate[habit.habit_id]);
     const isBusy = actionHabitId === habit.habit_id;
+    const logDisabled = isBusy || isLogged;
+    const statusLabel = isArchived
+      ? t("habits.archived")
+      : isPeriodHabit
+        ? getPeriodStatusLabel(habit)
+        : isLogged
+          ? t("habits.loggedToday")
+          : t("habits.notLoggedToday");
+    const actionLabel = isPeriodHabit
+      ? isLogged
+        ? getPeriodStatusLabel(habit)
+        : t("habits.addProgress")
+      : isLogged
+        ? t("habits.loggedToday")
+        : t("habits.logForDate");
     const habitTimeRange = formatTimeRangeForDisplay(habit.start_time, habit.end_time, settings.time_format);
     const dateRange =
       habit.end_date && habit.end_date !== habit.start_date
@@ -645,9 +698,11 @@ export default function HabitsScreen() {
             </Text>
           </View>
           <View style={styles.cardChips}>
-            <Text style={styles.streakChip}>{t("habits.streakDays", { count: streaks[habit.habit_id] || 0 })}</Text>
+            {!isPeriodHabit ? (
+              <Text style={styles.streakChip}>{t("habits.streakDays", { count: streaks[habit.habit_id] || 0 })}</Text>
+            ) : null}
             <Text style={[styles.statusChip, isLogged ? styles.statusLogged : styles.statusPending]}>
-              {isArchived ? t("habits.archived") : isLogged ? t("habits.loggedToday") : t("habits.notLoggedToday")}
+              {statusLabel}
             </Text>
           </View>
         </View>
@@ -655,16 +710,16 @@ export default function HabitsScreen() {
         <View style={styles.actionsRow}>
           {!isArchived ? (
             <Pressable
-              disabled={isBusy || isLogged}
-              onPress={() => void handleLogHabit(habit.habit_id)}
+              disabled={logDisabled}
+              onPress={() => void handleLogHabit(habit)}
               style={({ pressed }) => [
                 styles.actionButton,
                 styles.actionAccent,
-                isBusy || isLogged ? styles.actionDisabled : null,
+                logDisabled ? styles.actionDisabled : null,
                 pressed ? styles.actionPressed : null
               ]}
             >
-              <Text style={styles.actionAccentText}>{isLogged ? t("habits.loggedToday") : t("habits.logForDate")}</Text>
+              <Text style={styles.actionAccentText}>{actionLabel}</Text>
             </Pressable>
           ) : null}
           <Pressable
