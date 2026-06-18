@@ -4,7 +4,7 @@ This document summarizes TimeZap in a form that can later support thesis writing
 
 ## Project Overview
 
-TimeZap is a full-stack task and habit management information system. It allows users to create tasks, track recurring habits, view daily progress, inspect calendar activity, configure personal settings, and receive reminder records through an in-app notification center.
+TimeZap is a full-stack task and habit management information system. It allows users to create tasks, track recurring habits, view daily progress, inspect calendar activity, configure personal settings, receive reminder records through an in-app notification center, and optionally request AI-generated task and habit suggestions.
 
 The system is implemented with an Express/PostgreSQL backend and an Expo React Native frontend that runs on web and Android.
 
@@ -24,6 +24,7 @@ The goal of TimeZap is to provide a clear and practical V1 system for personal t
 - displaying activity in calendar form
 - supporting user personalization through settings
 - storing reminder records and read/unread notification state
+- offering optional intelligent assistance for suggested tasks and habits without automatic creation
 - running on both web and Android through a shared frontend codebase
 
 ## User Roles / Target Users
@@ -53,6 +54,9 @@ Target users are individuals who want a lightweight system for daily planning an
 - The system shall show unread notification state in the frontend.
 - The system shall mark individual or grouped notifications as read.
 - The system shall schedule native local notifications on supported Android builds when notification permissions are enabled.
+- The system shall allow users to request optional AI suggestions for tasks and habits from a short prompt.
+- The system shall require user confirmation before creating any AI-suggested task or habit.
+- The system shall keep the Gemini API key only in the backend environment.
 
 ## Non-Functional Requirements
 
@@ -63,6 +67,7 @@ Target users are individuals who want a lightweight system for daily planning an
 - The frontend should support web and Android using the same codebase.
 - The UI should support dark/light/system theme preferences.
 - The app should degrade gracefully on platforms where native notifications are unavailable.
+- The AI Suggestions feature should degrade gracefully when the Gemini API key is not configured.
 - The repository should include documentation for setup, architecture, database, API, testing, and thesis material.
 
 ## Technologies Used
@@ -87,6 +92,7 @@ Backend:
 - JWT
 - bcrypt
 - dotenv
+- Gemini API for optional AI Suggestions
 
 Database:
 
@@ -106,12 +112,13 @@ Database:
 - Native local notification scheduling is handled on the frontend because device scheduling is platform-specific.
 - Web uses in-app notifications only because native device scheduling is not available through the current web implementation.
 - Android emulator API calls use `10.0.2.2` so the emulator can reach the Windows host backend.
+- AI Suggestions are implemented as a backend-mediated feature so the Gemini API key is not exposed to the frontend. The feature returns structured suggestions only; creation still goes through the existing task and habit APIs after explicit user action.
 
 ## Implementation Summary
 
-The backend exposes grouped routes for auth, settings, tasks, habits, calendar, dashboard, and notifications. Controllers validate input, enforce user ownership through JWT middleware, query PostgreSQL, and return JSON responses.
+The backend exposes grouped routes for auth, settings, tasks, habits, calendar, dashboard, notifications, and AI suggestions. Controllers validate input, enforce user ownership through JWT middleware, query PostgreSQL or call the Gemini API where appropriate, and return JSON responses.
 
-The frontend uses React Navigation to separate authentication screens from the main tab interface. Auth and settings are handled through React contexts. Screens call typed API wrapper functions, render reusable UI components, and refresh related dashboard or notification state after changes.
+The frontend uses React Navigation to separate authentication screens from the main tab interface. Auth and settings are handled through React contexts. Screens call typed API wrapper functions, render reusable UI components, and refresh related dashboard or notification state after changes. The AI Suggestions modal appears as a small dashboard helper and creates selected suggestions through the existing task and habit creation functions.
 
 Task reminder records are generated in the backend when reminders are enabled. Habit reminder records are generated for daily habits in a rolling window. The frontend uses these backend records to show the notification center and, where supported, schedule native local notifications.
 
@@ -132,6 +139,8 @@ Manual testing should cover:
 - dashboard summaries
 - notification unread/read state
 - reminder cancellation on task/habit changes
+- AI suggestions unavailable state when no API key is configured
+- AI suggestion generation, review, and single-item add flow when the API key is configured
 - web behavior
 - Android emulator behavior
 
@@ -146,6 +155,7 @@ Detailed test cases are documented in `docs/testing.md`.
 - Habit native reminder coverage is focused on daily habits.
 - A formal automated test suite is not yet included.
 - Production database migrations are not yet implemented as a dedicated migration system.
+- AI Suggestions require a Gemini API key and are intentionally limited to structured suggestions, not full autonomous planning.
 
 ## Future Work
 
@@ -154,6 +164,7 @@ Detailed test cases are documented in `docs/testing.md`.
 - Automated backend and frontend tests.
 - A formal migration tool for schema changes.
 - More advanced habit recurrence reminder scheduling.
+- More advanced AI planning or personalization beyond the optional V1 suggestions helper.
 - Deployment documentation.
 - Export/reporting features for thesis evaluation or user analytics.
 

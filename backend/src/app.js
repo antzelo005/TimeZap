@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const { query } = require("./config/db");
 const authRoutes = require("./routes/auth.routes");
+const aiRoutes = require("./routes/ai.routes");
 const tasksRoutes = require("./routes/tasks.routes");
 const habitsRoutes = require("./routes/habits.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
@@ -36,6 +37,7 @@ app.get("/api/db-health", async (req, res, next) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/ai", aiRoutes);
 app.use("/api/tasks", tasksRoutes);
 app.use("/api/habits", habitsRoutes);
 app.use("/api/dashboard", dashboardRoutes);

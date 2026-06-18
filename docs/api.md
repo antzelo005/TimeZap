@@ -131,6 +131,65 @@ Example response shape:
 }
 ```
 
+## AI Suggestions
+
+The AI Suggestions endpoint is an optional V1 intelligent assistance feature. It uses the Gemini API from the backend only. The Gemini API key is never exposed to the frontend, prompts are not stored in the database, and suggestions do not create tasks or habits automatically.
+
+| Method | Path | Purpose | Auth required |
+| --- | --- | --- | --- |
+| POST | `/api/ai/suggestions` | Generate suggested tasks and habits from a short user prompt. | Yes |
+
+If `GEMINI_API_KEY` is missing, the endpoint returns:
+
+```json
+{
+  "error": true,
+  "message": "AI suggestions are not configured"
+}
+```
+
+Example request:
+
+```json
+{
+  "prompt": "Help me organize my thesis writing and gym routine.",
+  "language": "en",
+  "focus": "study"
+}
+```
+
+Example response shape:
+
+```json
+{
+  "suggestions": {
+    "tasks": [
+      {
+        "title": "Outline thesis chapter",
+        "description": "Create a short outline for the next thesis section.",
+        "date_hint": "today",
+        "estimated_duration_minutes": 45,
+        "priority": "high",
+        "icon": "book",
+        "color": "#2563EB"
+      }
+    ],
+    "habits": [
+      {
+        "title": "Daily writing block",
+        "description": "Spend focused time writing or editing.",
+        "recurrence_type": "daily",
+        "target_count": 1,
+        "target_period": "day",
+        "icon": "brain",
+        "color": "#22C55E"
+      }
+    ],
+    "notes": "Review suggestions before adding them."
+  }
+}
+```
+
 ## Tasks
 
 | Method | Path | Purpose | Auth required |

@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-na
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import AppButton from "../components/AppButton";
+import AISuggestionsModal from "../components/AISuggestionsModal";
 import SectionCard from "../components/SectionCard";
 import ScreenContainer from "../components/ScreenContainer";
 import StatCard from "../components/StatCard";
@@ -115,6 +116,7 @@ export default function DashboardScreen() {
   const [data, setData] = useState<DashboardViewData | null>(null);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
+  const [aiModalOpen, setAiModalOpen] = useState<boolean>(false);
   const today = useMemo(() => formatLocalDate(new Date()), []);
 
   const loadDashboard = useCallback(
@@ -244,6 +246,12 @@ export default function DashboardScreen() {
           <Text style={styles.title}>{t("dashboard.title")}</Text>
           <Text style={styles.subtitle}>{t("dashboard.subtitle")}</Text>
         </View>
+        <AppButton
+          title={t("ai.title")}
+          onPress={() => setAiModalOpen(true)}
+          variant="secondary"
+          style={styles.aiButton}
+        />
       </View>
 
       <Text style={styles.dateText}>{dashboard?.date ?? today}</Text>
@@ -348,6 +356,12 @@ export default function DashboardScreen() {
           </SectionCard>
         </>
       ) : null}
+
+      <AISuggestionsModal
+        visible={aiModalOpen}
+        onClose={() => setAiModalOpen(false)}
+        onAdded={() => void loadDashboard(true)}
+      />
     </ScreenContainer>
   );
 }
@@ -365,6 +379,10 @@ function createStyles(
     headerText: {
       flex: 1,
       gap: spacing.xs
+    },
+    aiButton: {
+      minWidth: 144,
+      borderRadius: 8
     },
     greeting: {
       fontSize: 13,

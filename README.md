@@ -17,6 +17,7 @@ Thesis context: **Task & Habit Management Information System**
 - Backend notification center with unread/read state.
 - Local reminder scheduling on supported native Android builds when notification permissions are enabled.
 - SVG-based icon system shared across screens.
+- Optional AI Suggestions helper that uses the Gemini API from the backend to suggest tasks and habits for user review.
 
 ## Tech Stack
 
@@ -41,6 +42,7 @@ Thesis context: **Task & Habit Management Information System**
 - bcrypt
 - dotenv
 - CORS
+- Gemini API through a backend-only API call for optional AI Suggestions
 
 ### Database
 
@@ -124,9 +126,12 @@ DB_PASSWORD=your_local_password
 JWT_SECRET=replace_with_a_local_secret
 JWT_EXPIRES_IN=7d
 NODE_ENV=development
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
 The current backend configuration uses individual `DB_*` variables, not a single `DATABASE_URL`.
+`GEMINI_API_KEY` is optional and enables AI Suggestions. Keep it only in the backend environment; the frontend never receives the key.
 
 ## PostgreSQL Setup
 
@@ -243,6 +248,8 @@ Backend variables:
 - `JWT_SECRET`: secret used to sign JWT tokens.
 - `JWT_EXPIRES_IN`: optional JWT lifetime, default `7d`.
 - `NODE_ENV`: optional runtime mode.
+- `GEMINI_API_KEY`: optional backend-only key for AI Suggestions.
+- `GEMINI_MODEL`: optional model override for AI Suggestions, default `gemini-2.5-flash`.
 
 Frontend variables:
 
@@ -285,6 +292,8 @@ Suggested screenshots:
 
 - Remote push notifications are not implemented in V1.
 - Google Calendar integration is not implemented in V1.
+- AI Suggestions are optional and unavailable when `GEMINI_API_KEY` is not configured.
+- AI Suggestions never auto-create tasks or habits; users must add each suggestion explicitly.
 - Web supports the in-app notification center, but not native device notifications.
 - Android native local notifications require a build where `expo-notifications` is available. Android Expo Go can run the app but native notification scheduling is treated as unavailable by the current implementation.
 - Habit reminder scheduling is focused on daily habits.
@@ -295,6 +304,7 @@ Suggested screenshots:
 
 - Remote push notifications using a push notification service.
 - Google Calendar integration.
+- More advanced AI planning flows, if needed, beyond the small V1 AI Suggestions helper.
 - Automated backend and frontend test suites.
 - Dedicated database migrations.
 - More recurrence-specific reminder scheduling for non-daily habits.

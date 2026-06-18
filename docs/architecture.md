@@ -12,7 +12,7 @@ User
   -> PostgreSQL tables
 ```
 
-The frontend is responsible for user interaction, local token/settings caching, navigation, theme rendering, and platform-specific notification scheduling. The backend is responsible for authentication, validation, data persistence, calendar/dashboard aggregation, reminder record generation, and notification read/unread state.
+The frontend is responsible for user interaction, local token/settings caching, navigation, theme rendering, and platform-specific notification scheduling. The backend is responsible for authentication, validation, data persistence, calendar/dashboard aggregation, reminder record generation, notification read/unread state, and the optional AI Suggestions call to Gemini.
 
 ## Frontend Architecture
 
@@ -89,6 +89,23 @@ The main tables are:
 Primary keys use `BIGSERIAL`, and related IDs are `BIGINT`. Passwords are stored as bcrypt hashes in `users.password_hash`; plain-text passwords are not stored.
 
 The backend uses direct SQL queries through the `pg` package. There is no ORM in V1.
+
+## Optional AI Suggestions Flow
+
+AI Suggestions is a small V1 helper, not a chatbot. It lets an authenticated user enter a short planning prompt and receive structured task and habit suggestions.
+
+```text
+Dashboard AI Suggestions modal
+  -> POST /api/ai/suggestions
+  -> backend validates prompt, language, and focus
+  -> backend calls Gemini generateContent API with GEMINI_API_KEY
+  -> backend validates and sanitizes structured JSON suggestions
+  -> frontend displays suggestions as reviewable cards
+  -> user explicitly adds one selected task or habit
+  -> existing /api/tasks or /api/habits endpoint creates the item
+```
+
+The Gemini API key stays only in the backend environment. Prompts are not stored in the database in V1, and suggested tasks/habits are never created automatically. If `GEMINI_API_KEY` is missing, the backend returns a clean unavailable/configuration error and the frontend shows a friendly message.
 
 ## Authentication Flow
 
