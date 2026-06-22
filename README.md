@@ -105,8 +105,8 @@ See [docs/architecture.md](docs/architecture.md) for the detailed architecture.
 ```text
 backend/        Express REST API, PostgreSQL access, authentication, business rules
 frontend/       Expo React Native app for web and Android
-docs/           Architecture, API, database, testing, screenshots, and thesis material
-docs/thesis/    Thesis master draft and generated thesis document files
+docs/           Architecture, API, database, testing, and screenshot documentation
+docs/screenshots/  Public screenshot image assets used by the README
 ```
 
 ## Setup Instructions
@@ -215,8 +215,6 @@ See [docs/api.md](docs/api.md) for endpoint details.
 - [API](docs/api.md)
 - [Testing](docs/testing.md)
 - [Screenshots](docs/screenshots.md)
-- [Thesis Material](docs/thesis-material.md)
-- [Thesis Master Draft](docs/thesis/TimeZap_Thesis_Master_Draft.md)
 
 ## Testing
 

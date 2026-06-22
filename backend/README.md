@@ -20,6 +20,23 @@ The backend handles authentication, validation, PostgreSQL persistence, dashboar
 ```bash
 cd backend
 npm install
+```
+
+Copy the environment template on Windows CMD:
+
+```cmd
+copy .env.example .env
+```
+
+PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Or on macOS/Linux:
+
+```bash
 cp .env.example .env
 ```
 
