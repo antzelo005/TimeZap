@@ -3,6 +3,9 @@ node_modules/
 dist/
 build/
 coverage/
+logs/
+tmp/
+temp/
 *.log
 .env
 .env.local

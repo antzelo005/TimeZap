@@ -1,184 +1,146 @@
 # TimeZap
 
-TimeZap is a task and habit management application built as a full-stack thesis project. It provides authenticated task tracking, habit tracking, dashboard summaries, calendar views, settings, localization, themes, a notification/reminder center for web and Android, and optional Gemini-powered AI Suggestions.
+**Task & Habit Management Information System**
 
-Thesis context: **Task & Habit Management Information System**
+TimeZap is a full-stack task and habit management application developed as a thesis project. It supports authenticated task planning, recurring habit tracking, dashboard summaries, calendar views, user settings, localization, notifications/reminders, and optional Gemini-powered AI Suggestions.
+
+## Thesis Context
+
+- Thesis topic: "Σχεδίαση και υλοποίηση πληροφοριακού συστήματος διαχείρισης εργασιών και συνηθειών"
+- Supervisor: Ευθύμιος Αλέπης
+- Author: Angelo Bordeianu
+
+## Preview / Screenshots
+
+Screenshot files will be added under `docs/screenshots/`. The planned filenames below are stable placeholders for the final thesis and portfolio images.
+
+| Screenshot | Planned Path | Status |
+| --- | --- | --- |
+| Dashboard dark mode | `docs/screenshots/01-dashboard-dark.png` | Coming soon |
+| Tasks screen | `docs/screenshots/02-tasks.png` | Coming soon |
+| Habits screen | `docs/screenshots/03-habits.png` | Coming soon |
+| Calendar screen | `docs/screenshots/04-calendar.png` | Coming soon |
+| AI Suggestions | `docs/screenshots/05-ai-suggestions.png` | Coming soon |
+| Account settings | `docs/screenshots/06-account-settings.png` | Coming soon |
+| Android emulator | `docs/screenshots/07-android-emulator.png` | Coming soon |
 
 ## Main Features
 
-- User registration, login, JWT authentication, profile editing, and password changes.
-- Task CRUD with pending, completed, cancelled, overdue, all-day, timed, and multi-day task support.
-- Habit CRUD with recurrence rules, daily logging, streak calculation, multi-day active ranges, and optional end dates.
-- Dashboard summary for today's tasks, habits, and current streak.
-- Calendar monthly and daily views for scheduled tasks and habit completion data.
-- Account/settings screen for theme, language, notifications, default view, week start, time format, timezone, and account details.
-- Dark/light/system theme support.
-- Localization support for English, Greek, and Romanian.
-- Backend notification center with unread/read state.
-- Local reminder scheduling on supported native Android builds when notification permissions are enabled.
-- SVG-based icon system shared across screens.
-- Optional AI Suggestions helper: users enter a prompt, receive structured task/habit suggestions from Gemini through the backend, review the suggestions, and manually choose what to add.
+- JWT authentication with account profile and password management.
+- Task management with create, update, delete, complete, cancel, overdue, all-day, timed, and multi-day task support.
+- Habit management with recurrence rules, active date ranges, daily logging, and optional end dates.
+- Periodic habit progress for targets such as x times per week or x times per month.
+- Streak tracking for recurring habits.
+- Dashboard view for today's tasks, habits, and progress.
+- Calendar views for scheduled tasks and habit completion context.
+- Settings for account details, preferences, default view, week start, time format, timezone, theme, language, and notifications.
+- Light, dark, and system theme modes.
+- English, Greek, and Romanian localization.
+- Backend notification center with read/unread state.
+- Android local reminders where supported by the platform/build.
+- SVG icon system for tasks, habits, and UI elements.
+- Optional Gemini AI Suggestions for reviewed task and habit ideas.
+
+## AI Suggestions
+
+AI Suggestions are optional and are mediated by the backend only.
+
+- The backend calls Gemini from `POST /api/ai/suggestions`.
+- `GEMINI_API_KEY` stays in the backend `.env` file.
+- The frontend never receives the Gemini key and never calls Gemini directly.
+- Users review all suggested tasks and habits before adding them.
+- Nothing is auto-created by the AI feature.
+- If Gemini is not configured, the feature is unavailable and the rest of the app continues to work.
 
 ## Tech Stack
 
 ### Frontend
 
-- Expo
 - React Native
+- Expo
 - React Native Web
 - TypeScript
 - React Navigation
 - AsyncStorage
+- `react-native-svg`
 - Expo Notifications
-- React Native SVG
 
 ### Backend
 
 - Node.js
-- Express
+- Express.js
 - PostgreSQL
-- `pg`
 - JWT
 - bcrypt
-- dotenv
-- CORS
-- Google Gemini API through a backend-only API call for optional AI Suggestions
-
-### Database
-
-- PostgreSQL
-- BIGSERIAL/BIGINT primary and foreign keys
-- Relational tables for users, settings, tasks, habits, habit rules, habit logs, and notifications
+- Gemini API
 
 ## Architecture Overview
 
-TimeZap is split into two applications:
-
-- `backend`: Express REST API connected to PostgreSQL.
-- `frontend`: Expo React Native app targeting web and Android.
-
-High-level flow:
-
 ```text
-User
-  -> Expo React Native frontend
-  -> API client
-  -> Express backend
-  -> PostgreSQL database
+Frontend Web/Android
+  ↓
+Express REST API
+  ↓
+PostgreSQL
 ```
 
-Notifications use two layers:
+AI Suggestions flow:
 
-- The backend `notifications` table is the source of truth for in-app notification center items.
-- The frontend schedules native local notifications from backend notification records when the platform supports it and the user has notifications enabled.
+```text
+Frontend AI Modal → Backend /api/ai/suggestions → Gemini API → Backend validation → Frontend suggestion cards
+```
 
-See [docs/architecture.md](docs/architecture.md) for the full technical architecture.
+Notification flow:
+
+```text
+Backend notifications table → Frontend notification center → Android local scheduling where supported
+```
+
+See [docs/architecture.md](docs/architecture.md) for the detailed architecture.
 
 ## Project Structure
 
 ```text
-TimeZap/
-  backend/
-    database/
-      schema.sql
-      seed.example.sql
-    src/
-      app.js
-      server.js
-      config/
-      controllers/
-      middleware/
-      routes/
-      utils/
-  frontend/
-    src/
-      api/
-      components/
-      context/
-      i18n/
-      navigation/
-      screens/
-      services/
-      storage/
-      theme/
-      types/
-  docs/
+backend/        Express REST API, PostgreSQL access, authentication, business rules
+frontend/       Expo React Native app for web and Android
+docs/           Architecture, API, database, testing, screenshots, and thesis material
+docs/thesis/    Thesis master draft and generated thesis document files
 ```
 
-## Backend Setup
+## Setup Instructions
 
-Install backend dependencies:
+### Backend
 
-```powershell
-cd C:\AntzeloProjects\TimeZap\backend
+```bash
+cd backend
 npm install
 ```
 
-Create a backend `.env` file in `backend\`. Do not commit this file.
+Copy the environment template:
 
-```env
-PORT=3000
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=timezap
-DB_USER=postgres
-DB_PASSWORD=your_local_password
-JWT_SECRET=replace_with_a_local_secret
-JWT_EXPIRES_IN=7d
-NODE_ENV=development
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+```cmd
+copy .env.example .env
 ```
-
-The current backend configuration uses individual `DB_*` variables, not a single `DATABASE_URL`.
-
-`GEMINI_API_KEY` is optional and enables AI Suggestions. Keep it only in the backend `.env`; the frontend never receives the key and never calls Gemini directly. If `GEMINI_API_KEY` is missing, the AI Suggestions endpoint returns a clean unavailable response and the rest of the app continues to work.
-
-To enable AI Suggestions:
-
-1. Create or update `backend\.env`.
-2. Add `GEMINI_API_KEY=your_gemini_api_key_here`.
-3. Optionally set `GEMINI_MODEL=gemini-2.5-flash`.
-4. Restart the backend.
-
-AI Suggestions are review-only in V1. Generated tasks and habits are not inserted automatically; the user must press Add on each suggestion, which then uses the normal Tasks/Habits APIs.
-
-## PostgreSQL Setup
-
-Create a local PostgreSQL database:
 
 ```powershell
-psql -U postgres
-CREATE DATABASE timezap;
-\q
+Copy-Item .env.example .env
 ```
 
-Apply the reference schema from the project root:
+macOS/Linux:
 
-```powershell
-cd C:\AntzeloProjects\TimeZap
-psql -U postgres -d timezap -f backend\database\schema.sql
+```bash
+cp .env.example .env
 ```
 
-Optional example seed data is available at:
+Fill the database variables in `.env`. Add `GEMINI_API_KEY` only if the AI Suggestions feature is needed.
 
-```text
-backend\database\seed.example.sql
-```
-
-The backend also runs a small startup schema preparation step in `backend\src\server.js` to add required V1 columns/tables if they are missing. The application does not intentionally overwrite existing data.
-
-## Run Backend
-
-```powershell
-cd C:\AntzeloProjects\TimeZap\backend
+```bash
 npm start
 ```
 
-Development mode with nodemon:
+Development mode:
 
-```powershell
-cd C:\AntzeloProjects\TimeZap\backend
+```bash
 npm run dev
 ```
 
@@ -189,145 +151,112 @@ http://localhost:3000/api/health
 http://localhost:3000/api/db-health
 ```
 
-## Frontend Setup
+### Frontend
 
-Install frontend dependencies:
-
-```powershell
-cd C:\AntzeloProjects\TimeZap\frontend
+```bash
+cd frontend
 npm install
+npm run web
+npm run android
 ```
 
-The current frontend API base URLs are defined in `frontend\src\api\client.ts`:
+The frontend currently uses these API base URLs:
 
 - Web: `http://localhost:3000/api`
 - Android emulator: `http://10.0.2.2:3000/api`
 
-This is important because `localhost` inside the Android emulator refers to the emulator itself. `10.0.2.2` points back to the Windows host machine.
-
-## Run Web App
-
-Start the backend first, then run:
-
-```powershell
-cd C:\AntzeloProjects\TimeZap\frontend
-npm run web
-```
-
-Expo will print the local web URL in the terminal.
-
-## Run Android Emulator
-
-Start the backend first, open an Android emulator, then run:
-
-```powershell
-cd C:\AntzeloProjects\TimeZap\frontend
-npm run android
-```
-
-The Android emulator uses `http://10.0.2.2:3000/api` to reach the backend running on Windows.
-
-## Useful Scripts
-
-Backend scripts from `backend\package.json`:
-
-```powershell
-npm start
-npm run dev
-```
-
-Frontend scripts from `frontend\package.json`:
-
-```powershell
-npm start
-npm run android
-npm run web
-npm run typecheck
-```
-
 ## Environment Variables
 
-Backend variables:
+Backend `.env` placeholders:
 
-- `PORT`: backend port, default `3000`.
-- `DB_HOST`: PostgreSQL host.
-- `DB_PORT`: PostgreSQL port, usually `5432`.
-- `DB_NAME`: PostgreSQL database name.
-- `DB_USER`: PostgreSQL user.
-- `DB_PASSWORD`: PostgreSQL password.
-- `JWT_SECRET`: secret used to sign JWT tokens.
-- `JWT_EXPIRES_IN`: optional JWT lifetime, default `7d`.
-- `NODE_ENV`: optional runtime mode.
-- `GEMINI_API_KEY`: optional backend-only Gemini key for AI Suggestions. Use `GEMINI_API_KEY=your_gemini_api_key_here` in local setup examples only; do not commit a real key.
-- `GEMINI_MODEL`: optional Gemini model override for AI Suggestions, default `gemini-2.5-flash`.
+```env
+PORT=
+DB_HOST=
+DB_PORT=
+DB_NAME=
+DB_USER=
+DB_PASSWORD=
+JWT_SECRET=
+JWT_EXPIRES_IN=
+GEMINI_API_KEY=
+GEMINI_MODEL=
+```
 
-Frontend variables:
+Do not commit real credentials, passwords, tokens, API keys, or production values.
 
-- No frontend `.env` variables are required in the current V1 implementation.
-- API base URLs are currently constants in `frontend\src\api\client.ts`.
+## PostgreSQL Setup
 
-Do not commit real secrets, local passwords, or production credentials.
+- Create a PostgreSQL database for TimeZap.
+- Create or select a PostgreSQL user with access to that database.
+- Run `backend/database/schema.sql` if the schema needs to be created manually.
+- The backend also includes safe runtime schema preparation for V1 columns, indexes, and the notifications table when they are missing.
+- Do not use seed or schema files to overwrite an existing database that contains important data.
 
-## Screenshots
+## API Overview
 
-Screenshot placeholders and thesis caption suggestions are tracked in [docs/screenshots.md](docs/screenshots.md).
+- `/api/auth`
+- `/api/tasks`
+- `/api/habits`
+- `/api/dashboard`
+- `/api/calendar`
+- `/api/settings`
+- `/api/notifications`
+- `/api/ai/suggestions`
 
-Suggested screenshots:
-
-- [Screenshot: Login screen]
-- [Screenshot: Dashboard dark mode]
-- [Screenshot: Tasks screen with pending tasks]
-- [Screenshot: New Task modal]
-- [Screenshot: Habits screen]
-- [Screenshot: New Habit modal]
-- [Screenshot: Calendar monthly view]
-- [Screenshot: Calendar day details]
-- [Screenshot: Account/settings screen]
-- [Screenshot: Notification center]
-- [Screenshot: AI Suggestions modal with prompt]
-- [Screenshot: AI suggested tasks]
-- [Screenshot: AI suggested habits]
-- [Screenshot: AI-generated task added to Tasks]
-- [Screenshot: AI-generated habit added to Habits]
-- [Screenshot: Android emulator running TimeZap]
-- [Screenshot: Backend health endpoint]
-- [Screenshot: PostgreSQL ERD/database diagram]
-- [Screenshot: GitHub repository]
+See [docs/api.md](docs/api.md) for endpoint details.
 
 ## Documentation
 
+- [Documentation Index](docs/README.md)
 - [Architecture](docs/architecture.md)
 - [Database](docs/database.md)
 - [API](docs/api.md)
-- [Manual Testing](docs/testing.md)
-- [Screenshot Checklist](docs/screenshots.md)
+- [Testing](docs/testing.md)
+- [Screenshots](docs/screenshots.md)
 - [Thesis Material](docs/thesis-material.md)
+- [Thesis Master Draft](docs/thesis/TimeZap_Thesis_Master_Draft.md)
+
+## Testing
+
+Recommended verification commands and checks:
+
+```bash
+cd frontend
+npm run typecheck
+npx expo export --platform web
+```
+
+Backend verification:
+
+- Start the backend with `npm start`.
+- Check `/api/health`.
+- Check `/api/db-health` when PostgreSQL is available.
+
+Manual test coverage is tracked in [docs/testing.md](docs/testing.md).
 
 ## Known Limitations
 
-- Remote push notifications are not implemented in V1.
-- Google Calendar integration is not implemented in V1.
-- AI Suggestions are optional and unavailable when `GEMINI_API_KEY` is not configured.
-- AI Suggestions never auto-create tasks or habits; users must add each suggestion explicitly.
-- Web supports the in-app notification center, but not native device notifications.
-- Android native local notifications require a build where `expo-notifications` is available. Android Expo Go can run the app but native notification scheduling is treated as unavailable by the current implementation.
-- Habit reminder scheduling is focused on daily habits.
-- The project currently relies mainly on manual testing documentation rather than a complete automated test suite.
-- The backend startup schema preparation helps local V1 development, but production migrations would need a dedicated migration workflow.
+- No Google Calendar sync.
+- No server push notifications.
+- No app store deployment.
+- Native notification behavior depends on platform and build support.
+- No full automated test suite yet.
+- Gemini AI requires a backend API key.
+- AI does not autonomously plan or create items.
 
-## Future Enhancements
+## Future Work
 
-- Remote push notifications using a push notification service.
 - Google Calendar integration.
-- More advanced AI planning flows, if needed, beyond the small V1 AI Suggestions helper.
-- Automated backend and frontend test suites.
-- Dedicated database migrations.
-- More recurrence-specific reminder scheduling for non-daily habits.
-- Production deployment documentation.
-- Admin/reporting screens for thesis evaluation data, if needed.
+- Server push notifications.
+- EAS/development build setup for native notification verification.
+- Cloud deployment.
+- Automated tests.
+- Advanced analytics.
+- Personalized AI suggestions.
+- Collaborative tasks.
 
-## Author / Developer
+## Author
 
-Developed by Antzelo as a thesis-oriented full-stack application.
+Angelo Bordeianu
 
-Project context: **TimeZap - Task & Habit Management Information System**
+GitHub: [antzelo005](https://github.com/antzelo005)
