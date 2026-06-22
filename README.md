@@ -6,8 +6,8 @@ TimeZap is a full-stack task and habit management application developed as a the
 
 ## Thesis Context
 
-- Thesis topic: "Σχεδίαση και υλοποίηση πληροφοριακού συστήματος διαχείρισης εργασιών και συνηθειών"
-- Supervisor: Ευθύμιος Αλέπης
+- Thesis topic: "Design and implementation of task and habit management information systems"
+- Supervisor: Efthimios Alepis
 - Author: Angelo Bordeianu
 
 ## Preview / Screenshots
