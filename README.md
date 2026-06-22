@@ -12,17 +12,19 @@ TimeZap is a full-stack task and habit management application developed as a the
 
 ## Preview / Screenshots
 
-Screenshot files will be added under `docs/screenshots/`. The planned filenames below are stable placeholders for the final thesis and portfolio images.
+![Dashboard dark mode](docs/screenshots/01-dashboard-dark.png)
 
-| Screenshot | Planned Path | Status |
-| --- | --- | --- |
-| Dashboard dark mode | `docs/screenshots/01-dashboard-dark.png` | Coming soon |
-| Tasks screen | `docs/screenshots/02-tasks.png` | Coming soon |
-| Habits screen | `docs/screenshots/03-habits.png` | Coming soon |
-| Calendar screen | `docs/screenshots/04-calendar.png` | Coming soon |
-| AI Suggestions | `docs/screenshots/05-ai-suggestions.png` | Coming soon |
-| Account settings | `docs/screenshots/06-account-settings.png` | Coming soon |
-| Android emulator | `docs/screenshots/07-android-emulator.png` | Coming soon |
+![Tasks screen](docs/screenshots/02-tasks.png)
+
+![Habits screen](docs/screenshots/03-habits.png)
+
+![Calendar screen](docs/screenshots/04-calendar.png)
+
+![AI Suggestions](docs/screenshots/05-ai-suggestions.png)
+
+![Account settings](docs/screenshots/06-account-settings.png)
+
+![Android emulator](docs/screenshots/07-android-emulator.png)
 
 ## Main Features
 
