@@ -137,6 +137,35 @@ npm run typecheck
 - [ ] Disable notifications in settings and confirm native local scheduling is skipped/cancelled.
 - [ ] Re-enable notifications and confirm backend in-app notification center still works.
 
+## AI Suggestions
+
+Test AI Suggestions carefully because the feature depends on an external provider and an optional backend environment variable.
+
+Without `GEMINI_API_KEY`:
+
+- [ ] Start the backend without `GEMINI_API_KEY`.
+- [ ] Call `POST /api/ai/suggestions` with an authenticated request and confirm it returns `503`.
+- [ ] Confirm the response message is clean: `AI suggestions are not configured`.
+- [ ] Open the frontend AI Suggestions modal and confirm it shows a friendly unavailable message.
+- [ ] Confirm the frontend does not show raw Gemini/provider validation errors.
+
+With `GEMINI_API_KEY` configured:
+
+- [ ] Start the backend with `GEMINI_API_KEY` in `backend/.env`.
+- [ ] Generate suggestions from an English prompt.
+- [ ] Generate suggestions from a Greek prompt.
+- [ ] Generate suggestions from a Romanian prompt if possible.
+- [ ] Confirm the response contains at most 5 task suggestions and at most 5 habit suggestions.
+- [ ] Confirm task suggestions include title, description, date hint, estimated duration, priority, icon, and color.
+- [ ] Confirm habit suggestions include title, description, recurrence type, target count, target period, icon, and color.
+- [ ] Confirm nothing is auto-created immediately after generating suggestions.
+- [ ] Add one suggested task manually and confirm it appears in the Tasks screen.
+- [ ] Add one suggested habit manually and confirm it appears in the Habits screen.
+- [ ] Confirm generated suggestions use the same existing task/habit APIs as manual creation.
+- [ ] Confirm dark mode modal readability.
+- [ ] Confirm the feature works on web.
+- [ ] Confirm Android opens the modal and does not crash.
+
 ## Web
 
 - [ ] Run `npm run web`.

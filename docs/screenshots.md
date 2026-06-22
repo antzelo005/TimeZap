@@ -64,6 +64,42 @@ Use this checklist to collect repository and thesis screenshots. Replace each pl
 - Demonstrates: Notification bell unread state, notification list, individual read actions, and history access.
 - Suggested thesis caption: "Notification center displaying task and habit reminder records."
 
+### [Screenshot: AI Suggestions modal with prompt]
+
+- Purpose: Show the optional AI entry point.
+- Demonstrates: User prompt input, language/focus controls, and the review-before-adding disclaimer.
+- Suggested thesis caption: "Εικόνα X: Προαιρετική λειτουργία AI Suggestions για δημιουργία προτάσεων εργασιών και συνηθειών."
+
+### [Screenshot: AI suggested tasks]
+
+- Purpose: Show generated task suggestions before insertion.
+- Demonstrates: Gemini-generated task cards, date hints, priority, estimated duration, icon, color, and manual Add action.
+- Suggested thesis caption: "Εικόνα X: Προτεινόμενες εργασίες που επιστρέφονται από το Gemini API για έλεγχο από τον χρήστη."
+
+### [Screenshot: AI suggested habits]
+
+- Purpose: Show generated habit suggestions before insertion.
+- Demonstrates: Gemini-generated habit cards, recurrence type, target count, icon, color, and manual Add action.
+- Suggested thesis caption: "Εικόνα X: Προτεινόμενες συνήθειες που επιστρέφονται από το Gemini API για χειροκίνητη προσθήκη."
+
+### [Screenshot: AI-generated task added to Tasks]
+
+- Purpose: Show that AI suggestions become normal tasks only after user confirmation.
+- Demonstrates: A selected suggestion added through the existing task creation flow and visible in the Tasks screen.
+- Suggested thesis caption: "Εικόνα X: Χειροκίνητη προσθήκη AI πρότασης εργασίας από τον χρήστη."
+
+### [Screenshot: AI-generated habit added to Habits]
+
+- Purpose: Show that AI suggestions become normal habits only after user confirmation.
+- Demonstrates: A selected suggestion added through the existing habit creation flow and visible in the Habits screen.
+- Suggested thesis caption: "Εικόνα X: Χειροκίνητη προσθήκη AI πρότασης συνήθειας από τον χρήστη."
+
+### [Screenshot: AI unavailable message when API key is missing]
+
+- Purpose: Show graceful fallback when the optional external provider is not configured.
+- Demonstrates: Friendly frontend error state without exposing Gemini internals or backend secrets.
+- Suggested thesis caption: "Εικόνα X: Μήνυμα μη διαθεσιμότητας της λειτουργίας AI Suggestions όταν δεν έχει ρυθμιστεί κλειδί API."
+
 ### [Screenshot: Android emulator running TimeZap]
 
 - Purpose: Show cross-platform support.

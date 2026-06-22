@@ -57,6 +57,8 @@ Target users are individuals who want a lightweight system for daily planning an
 - The system shall allow users to request optional AI suggestions for tasks and habits from a short prompt.
 - The system shall require user confirmation before creating any AI-suggested task or habit.
 - The system shall keep the Gemini API key only in the backend environment.
+- The system shall not automatically insert AI-generated suggestions into the user's task or habit data.
+- The system shall return a clear unavailable message when AI Suggestions are not configured.
 
 ## Non-Functional Requirements
 
@@ -68,6 +70,8 @@ Target users are individuals who want a lightweight system for daily planning an
 - The UI should support dark/light/system theme preferences.
 - The app should degrade gracefully on platforms where native notifications are unavailable.
 - The AI Suggestions feature should degrade gracefully when the Gemini API key is not configured.
+- External AI-provider errors should not expose raw provider internals or secrets to the frontend.
+- The AI Suggestions feature should remain optional so the core task/habit system can operate without it.
 - The repository should include documentation for setup, architecture, database, API, testing, and thesis material.
 
 ## Technologies Used
@@ -94,6 +98,10 @@ Backend:
 - dotenv
 - Gemini API for optional AI Suggestions
 
+External service:
+
+- Google Gemini API / Google AI Studio for optional structured task and habit suggestion generation. The integration is backend-mediated and depends on `GEMINI_API_KEY` being configured in the backend environment.
+
 Database:
 
 - PostgreSQL relational schema
@@ -113,6 +121,7 @@ Database:
 - Web uses in-app notifications only because native device scheduling is not available through the current web implementation.
 - Android emulator API calls use `10.0.2.2` so the emulator can reach the Windows host backend.
 - AI Suggestions are implemented as a backend-mediated feature so the Gemini API key is not exposed to the frontend. The feature returns structured suggestions only; creation still goes through the existing task and habit APIs after explicit user action.
+- AI prompt text and rejected suggestions are not persisted in V1. This keeps the feature lightweight and avoids adding AI-specific database tables before there is a clear product need.
 
 ## Implementation Summary
 
@@ -121,6 +130,27 @@ The backend exposes grouped routes for auth, settings, tasks, habits, calendar, 
 The frontend uses React Navigation to separate authentication screens from the main tab interface. Auth and settings are handled through React contexts. Screens call typed API wrapper functions, render reusable UI components, and refresh related dashboard or notification state after changes. The AI Suggestions modal appears as a small dashboard helper and creates selected suggestions through the existing task and habit creation functions.
 
 Task reminder records are generated in the backend when reminders are enabled. Habit reminder records are generated for daily habits in a rolling window. The frontend uses these backend records to show the notification center and, where supported, schedule native local notifications.
+
+## AI Suggestions Feature
+
+AI Suggestions is an optional intelligent assistance feature in TimeZap V1. The user opens the AI Suggestions modal, writes a short prompt, selects a language and focus area, and sends the request to the backend endpoint `POST /api/ai/suggestions`.
+
+The backend validates the prompt, language, and focus value before calling the Gemini API. The Gemini API key is read only from the backend environment and is never sent to the frontend. The backend asks Gemini for structured task and habit suggestions, then sanitizes the returned fields before sending them back to the app.
+
+The response contains up to five task suggestions, up to five habit suggestions, and a notes string. Task suggestions include title, description, date hint, estimated duration, priority, icon, and color. Habit suggestions include title, description, recurrence type, target count, target period, icon, and color.
+
+The feature is intentionally review-based. Nothing is auto-created by AI. The user must manually add each suggested task or habit, and the frontend then uses the same existing task/habit creation APIs used by normal manual entry.
+
+V1 does not store AI prompts or Gemini responses in the database. It also does not use AI for medical, legal, or financial advice, and it does not perform autonomous schedule management.
+
+## AI Security and Privacy Considerations
+
+- `GEMINI_API_KEY` is stored only in `backend/.env` and must not be committed.
+- The frontend never receives the Gemini API key and never calls Gemini directly.
+- Raw provider errors are converted into short user-facing backend messages.
+- User prompts are not stored in the TimeZap database in V1.
+- Suggested items are not inserted unless the user explicitly chooses to add them.
+- The feature is optional; the rest of the system works when `GEMINI_API_KEY` is missing.
 
 ## Testing Summary
 
@@ -141,6 +171,8 @@ Manual testing should cover:
 - reminder cancellation on task/habit changes
 - AI suggestions unavailable state when no API key is configured
 - AI suggestion generation, review, and single-item add flow when the API key is configured
+- AI suggestion generation in English, Greek, and Romanian where possible
+- confirmation that AI suggestions are not auto-created before the user presses Add
 - web behavior
 - Android emulator behavior
 
@@ -155,7 +187,10 @@ Detailed test cases are documented in `docs/testing.md`.
 - Habit native reminder coverage is focused on daily habits.
 - A formal automated test suite is not yet included.
 - Production database migrations are not yet implemented as a dedicated migration system.
-- AI Suggestions require a Gemini API key and are intentionally limited to structured suggestions, not full autonomous planning.
+- AI Suggestions require a Gemini API key and depend on an external AI provider.
+- AI Suggestions are intentionally limited to structured suggestions, not full autonomous planning.
+- AI Suggestions do not yet personalize output from long-term user history or existing task/habit patterns.
+- AI prompts and rejected suggestions are not stored in V1.
 
 ## Future Work
 
@@ -165,6 +200,10 @@ Detailed test cases are documented in `docs/testing.md`.
 - A formal migration tool for schema changes.
 - More advanced habit recurrence reminder scheduling.
 - More advanced AI planning or personalization beyond the optional V1 suggestions helper.
+- Personalized AI suggestions based on existing tasks, habits, and completion history.
+- AI weekly planning that still requires explicit user confirmation.
+- Smarter habit recurrence recommendations.
+- Local or offline AI model alternatives if privacy, cost, or availability become important.
 - Deployment documentation.
 - Export/reporting features for thesis evaluation or user analytics.
 

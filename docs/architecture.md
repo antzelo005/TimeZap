@@ -92,7 +92,17 @@ The backend uses direct SQL queries through the `pg` package. There is no ORM in
 
 ## Optional AI Suggestions Flow
 
-AI Suggestions is a small V1 helper, not a chatbot. It lets an authenticated user enter a short planning prompt and receive structured task and habit suggestions.
+AI Suggestions is a small V1 helper, not a chatbot and not an autonomous planner. It lets an authenticated user enter a short planning prompt and receive structured task and habit suggestions for manual review.
+
+```text
+User
+  -> Frontend AI Suggestions modal
+  -> Backend POST /api/ai/suggestions
+  -> Gemini API
+  -> Backend sanitizer
+  -> Frontend suggestion cards
+  -> Existing Tasks/Habits APIs after explicit user Add action
+```
 
 ```text
 Dashboard AI Suggestions modal
@@ -105,7 +115,11 @@ Dashboard AI Suggestions modal
   -> existing /api/tasks or /api/habits endpoint creates the item
 ```
 
-The Gemini API key stays only in the backend environment. Prompts are not stored in the database in V1, and suggested tasks/habits are never created automatically. If `GEMINI_API_KEY` is missing, the backend returns a clean unavailable/configuration error and the frontend shows a friendly message.
+The frontend uses `AISuggestionsModal` and `frontend/src/api/ai.api.ts` to send the prompt to the backend. The frontend never calls Gemini directly and never receives `GEMINI_API_KEY`.
+
+The backend AI module is mounted at `POST /api/ai/suggestions`. It validates the request body, calls the Gemini API, extracts structured JSON, sanitizes task/habit fields, limits the result to at most five tasks and five habits, and returns a frontend-compatible `suggestions` object. Provider errors are converted to short user-facing backend responses instead of exposing raw Gemini validation details.
+
+The Gemini API key stays only in the backend environment. Prompts are not stored in the database in V1, and no AI-specific database table is used. Suggested tasks/habits are never created automatically. If `GEMINI_API_KEY` is missing, the backend returns a clean unavailable/configuration error and the frontend shows a friendly message.
 
 ## Authentication Flow
 

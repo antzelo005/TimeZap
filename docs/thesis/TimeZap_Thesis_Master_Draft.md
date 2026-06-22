@@ -35,7 +35,7 @@
 
 Η υλοποίηση έγινε ως full-stack εφαρμογή. Το frontend αναπτύχθηκε με Expo, React Native, React Native Web και TypeScript, ώστε να λειτουργεί σε web και Android. Το backend αναπτύχθηκε με Node.js και Express.js, ενώ η αποθήκευση γίνεται σε PostgreSQL. Η αυθεντικοποίηση βασίζεται σε JWT και οι κωδικοί αποθηκεύονται ως bcrypt hashes.
 
-Το τελικό αποτέλεσμα είναι ένα λειτουργικό V1 σύστημα με εγγραφή/σύνδεση, εργασίες, συνήθειες, dashboard, ημερολόγιο, ρυθμίσεις, θεματική εμφάνιση, τοπικοποίηση, SVG icon system και backend notification center. Η εργασία αναγνωρίζει περιορισμούς όπως η απουσία Google Calendar sync, server push notifications, app store deployment και πλήρους automated test suite.
+Το τελικό αποτέλεσμα είναι ένα λειτουργικό V1 σύστημα με εγγραφή/σύνδεση, εργασίες, συνήθειες, dashboard, ημερολόγιο, ρυθμίσεις, θεματική εμφάνιση, τοπικοποίηση, SVG icon system, backend notification center και προαιρετική λειτουργία AI Suggestions μέσω Gemini API. Η λειτουργία AI παρέχει προτάσεις εργασιών και συνηθειών για έλεγχο από τον χρήστη, χωρίς αυτόματη εισαγωγή δεδομένων. Η εργασία αναγνωρίζει περιορισμούς όπως η απουσία Google Calendar sync, server push notifications, app store deployment, πλήρους automated test suite και αυτόνομου AI planning.
 
 ## 3. Abstract
 
@@ -43,9 +43,9 @@ This thesis material presents the design and implementation of TimeZap, a task a
 
 TimeZap is implemented as a full-stack system. The frontend uses Expo, React Native, React Native Web, and TypeScript, while the backend uses Node.js, Express.js, and PostgreSQL. Authentication is based on JSON Web Tokens, and passwords are stored as bcrypt hashes rather than plain text.
 
-The main features include user registration and login, task management, multi-day tasks, habit tracking, recurrence rules, habit logs, streak calculation, dashboard summaries, monthly and daily calendar views, settings, localization, themes, and a backend-backed notification center. Native local notifications are supported only on compatible Android builds when permissions and user settings allow it.
+The main features include user registration and login, task management, multi-day tasks, habit tracking, recurrence rules, habit logs, streak calculation, dashboard summaries, monthly and daily calendar views, settings, localization, themes, a backend-backed notification center, and optional Gemini-based AI Suggestions. Native local notifications are supported only on compatible Android builds when permissions and user settings allow it.
 
-The result is a functional V1 information system suitable for a thesis project. Future work includes remote push notifications, Google Calendar integration, production deployment, automated testing, and a more advanced recurrence engine.
+The result is a functional V1 information system suitable for a thesis project. The AI feature is limited to reviewable task and habit suggestions; it does not automatically manage the user's schedule. Future work includes remote push notifications, Google Calendar integration, production deployment, automated testing, a more advanced recurrence engine, and more personalized AI assistance.
 
 ## 4. Εισαγωγή
 
@@ -84,6 +84,7 @@ The result is a functional V1 information system suitable for a thesis project. 
 - Τοπικές Android ειδοποιήσεις όπου υποστηρίζονται.
 - Ρυθμίσεις theme, language, notifications, default view, week start και time format.
 - Υποστήριξη Αγγλικών, Ελληνικών και Ρουμανικών.
+- Προαιρετική έξυπνη υποβοήθηση για προτάσεις εργασιών και συνηθειών μέσω Gemini API.
 - Κοινή βάση frontend για web και Android.
 - Καθαρό UI με mobile-first λογική και χαμηλό γνωστικό φορτίο.
 
@@ -107,6 +108,9 @@ The result is a functional V1 information system suitable for a thesis project. 
 - Ρυθμίσεις theme, language, notifications, default view, week start και time format.
 - Notification center με unread/read state.
 - Web in-app notifications και Android local notifications όπου υποστηρίζονται.
+- Ο χρήστης μπορεί να ζητήσει προτάσεις εργασιών και συνηθειών μέσω AI.
+- Το σύστημα εμφανίζει τις προτάσεις χωρίς αυτόματη εισαγωγή στη βάση.
+- Ο χρήστης επιλέγει χειροκίνητα ποιες προτάσεις θα προσθέσει.
 
 Οι λειτουργικές απαιτήσεις συνδέονται με συγκεκριμένα endpoints και οθόνες. Για παράδειγμα, οι εργασίες χρησιμοποιούν /api/tasks και η κατάσταση ειδοποιήσεων χρησιμοποιεί /api/notifications και /api/notifications/unread-count.
 
@@ -120,6 +124,9 @@ The result is a functional V1 information system suitable for a thesis project. 
 - Αξιοπιστία στη δημιουργία και ακύρωση notification records.
 - Cross-platform λειτουργία με σαφείς διαφορές ανά πλατφόρμα.
 - Υποστήριξη localization και themes.
+- Ασφάλεια API key, με το GEMINI_API_KEY να παραμένει μόνο στο backend περιβάλλον.
+- Ελεγχόμενη χρήση εξωτερικού AI provider χωρίς απευθείας frontend-to-Gemini κλήση.
+- Αξιοπιστία και graceful fallback όταν το AI δεν είναι configured.
 - Τεκμηρίωση για thesis και μελλοντική συντήρηση.
 
 Οι μη λειτουργικές απαιτήσεις δεν υλοποιούνται όλες με απόλυτα μετρήσιμο τρόπο στο V1, όμως καθοδηγούν τη δομή του συστήματος, την τεκμηρίωση, τις δοκιμές και τις επιλογές τεχνολογιών.
@@ -192,6 +199,14 @@ Local frontend storage για token, cached settings και native notification 
 
 Στο TimeZap η τεχνολογία Expo Notifications χρησιμοποιείται με πρακτικό στόχο: να υποστηρίζει το V1 χωρίς υπερβολική πολυπλοκότητα. Η επιλογή αξιολογήθηκε με βάση τη συμβατότητα με web/Android, τη συντηρησιμότητα και την ευκολία τεκμηρίωσης.
 
+### Gemini API / Google AI Studio
+
+Το Gemini API χρησιμοποιείται για την προαιρετική λειτουργία AI Suggestions. Πρόκειται για εξωτερική υπηρεσία παραγωγής κειμένου και structured output, η οποία αξιοποιείται ώστε ο χρήστης να λαμβάνει προτεινόμενες εργασίες και συνήθειες από σύντομο prompt.
+
+Στο TimeZap η ενσωμάτωση γίνεται αποκλειστικά από το backend. Το frontend δεν καλεί απευθείας το Gemini API και δεν λαμβάνει ποτέ το GEMINI_API_KEY. Το backend διαβάζει το κλειδί από το περιβάλλον, στέλνει το prompt, λαμβάνει structured suggestions και στη συνέχεια εφαρμόζει validation/sanitization πριν επιστρέψει δεδομένα στο frontend.
+
+Η επιλογή του Gemini API έγινε για να προστεθεί περιορισμένη, προαιρετική έξυπνη υποβοήθηση χωρίς να αλλάξει ο βασικός χαρακτήρας του συστήματος. Η λειτουργία δεν παρέχει αυτόνομο προγραμματισμό, δεν δημιουργεί δεδομένα χωρίς έγκριση χρήστη και δεν προορίζεται για ιατρικές, νομικές ή οικονομικές συμβουλές.
+
 ### Git/GitHub
 
 Χρησιμοποιείται για version control και παρουσίαση repository.
@@ -234,6 +249,16 @@ Local frontend storage για token, cached settings και native notification 
 
 Το frontend API client επιλέγει base URL ανά πλατφόρμα. Στο web χρησιμοποιείται localhost. Στο Android emulator χρησιμοποιείται 10.0.2.2 επειδή το localhost του emulator δεν δείχνει στον Windows host.
 
+### AI Suggestions flow
+
+Η ροή AI Suggestions περνά πάντα από το backend:
+
+```text
+User -> Frontend AI Modal -> Backend /api/ai/suggestions -> Gemini API -> Backend sanitizer -> Frontend suggestions -> Existing Tasks/Habits APIs
+```
+
+Ο χρήστης γράφει prompt στο frontend modal και επιλέγει γλώσσα/focus. Το backend ελέγχει το request, καλεί το Gemini API με backend-only API key, καθαρίζει τη structured απάντηση και επιστρέφει προτάσεις. Οι προτάσεις εμφανίζονται ως κάρτες και γίνονται κανονικές εργασίες ή συνήθειες μόνο αν ο χρήστης πατήσει Add. Δεν αποθηκεύονται prompts στη βάση στο V1 και δεν υπάρχει direct frontend-to-Gemini επικοινωνία.
+
 ### Authentication flow
 
 Μετά το login/register το backend επιστρέφει JWT, το οποίο αποθηκεύεται στο AsyncStorage. Στην εκκίνηση η εφαρμογή καλεί /api/auth/me για token restoration.
@@ -265,9 +290,11 @@ Local frontend storage για token, cached settings και native notification 
 
 Η ύπαρξη end_date σε tasks και habits επιτρέπει multi-day υποστήριξη χωρίς διπλοποίηση records. Ο πίνακας notifications αποθηκεύει τόσο μελλοντικές υπενθυμίσεις όσο και records που εμφανίζονται στο in-app notification center.
 
+Η λειτουργία AI Suggestions δεν απαιτεί νέο πίνακα βάσης δεδομένων στο V1. Τα prompts και οι απαντήσεις του Gemini δεν αποθηκεύονται. Αν ο χρήστης επιλέξει χειροκίνητα μία πρόταση εργασίας ή συνήθειας, τότε δημιουργούνται κανονικά records στους ήδη υπάρχοντες πίνακες tasks ή habits/habit_rules μέσω των υφιστάμενων API endpoints.
+
 ## 11. Backend implementation
 
-Το backend υλοποιείται ως Express εφαρμογή με καθαρή οργάνωση σε routes και controllers. Το app.js συνδέει τα modules /api/auth, /api/tasks, /api/habits, /api/dashboard, /api/calendar, /api/settings και /api/notifications.
+Το backend υλοποιείται ως Express εφαρμογή με καθαρή οργάνωση σε routes και controllers. Το app.js συνδέει τα modules /api/auth, /api/tasks, /api/habits, /api/dashboard, /api/calendar, /api/settings, /api/notifications και /api/ai.
 
 Το server.js φορτώνει dotenv, εκτελεί ensureRuntimeSchema και ξεκινά τον server. Η runtime schema προετοιμασία είναι χρήσιμη για τοπικό V1 development, αλλά δεν αντικαθιστά ένα πλήρες production migration system.
 
@@ -305,6 +332,12 @@ Local frontend storage για token, cached settings και native notification 
 
 Το notifications module δημιουργεί reminder records, υπολογίζει unread count, ενημερώνει read_at και ακυρώνει scheduled records.
 
+### AI module
+
+Το AI module περιλαμβάνει τα αρχεία ai.routes.js και ai.controller.js. Το endpoint POST /api/ai/suggestions απαιτεί authentication, δέχεται prompt, language και focus, ελέγχει τα επιτρεπτά values και καλεί το Gemini API μόνο από το backend.
+
+Το ai.controller.js χρησιμοποιεί structured output configuration, προσπαθεί να ανακτήσει JSON από την απάντηση του provider και εφαρμόζει sanitizer ώστε να επιστρέφονται έως πέντε task suggestions και έως πέντε habit suggestions. Σε περίπτωση που λείπει το GEMINI_API_KEY επιστρέφεται καθαρό 503 μήνυμα. Σε περίπτωση provider failure ή invalid JSON επιστρέφεται καθαρό 502 μήνυμα χωρίς raw Gemini details.
+
 ## 12. API documentation summary
 
 Ο παρακάτω πίνακας συνοψίζει τα endpoints του backend. Τα περισσότερα απαιτούν Authorization Bearer token. Δεν παρατίθενται πραγματικά tokens ή credentials.
@@ -318,6 +351,7 @@ Local frontend storage για token, cached settings και native notification 
 | Auth | PUT | /api/auth/password | Αλλαγή κωδικού. | Ναι | Ελέγχει current_password. |
 | Settings | GET | /api/settings | Ανάκτηση ρυθμίσεων. | Ναι | Συνδυάζει user_settings και users. |
 | Settings | PUT | /api/settings | Ενημέρωση ρυθμίσεων. | Ναι | Theme, language, notifications, default view, week start, time format. |
+| AI | POST | /api/ai/suggestions | Παραγωγή προτεινόμενων εργασιών και συνηθειών. | Ναι | Προαιρετικό Gemini integration, έως 5 tasks και 5 habits, χωρίς αυτόματη εισαγωγή. |
 | Tasks | GET | /api/tasks | Λίστα εργασιών. | Ναι | Υποστηρίζει status, date, from, to. |
 | Tasks | GET | /api/tasks/:id | Ανάκτηση εργασίας. | Ναι | Ελέγχεται ownership. |
 | Tasks | POST | /api/tasks | Δημιουργία εργασίας. | Ναι | Δημιουργεί reminder records όταν χρειάζεται. |
@@ -357,11 +391,11 @@ Local frontend storage για token, cached settings και native notification 
 
 ### Screens
 
-Οι οθόνες Login, Register, Dashboard, Tasks, Habits, Calendar και Account αντιστοιχούν στις βασικές ροές χρήστη.
+Οι οθόνες Login, Register, Dashboard, Tasks, Habits, Calendar και Account αντιστοιχούν στις βασικές ροές χρήστη. Το Dashboard φιλοξενεί επίσης την είσοδο προς το AISuggestionsModal, επειδή οι προτάσεις AI λειτουργούν ως βοηθητική ροή οργάνωσης και όχι ως ξεχωριστή βασική οθόνη.
 
 ### API layer
 
-Ο apiClient προσθέτει headers, token, JSON parsing και error handling. Τα api modules παρέχουν typed functions ανά backend module.
+Ο apiClient προσθέτει headers, token, JSON parsing και error handling. Τα api modules παρέχουν typed functions ανά backend module. Το ai.api.ts καλεί το POST /api/ai/suggestions και επιστρέφει typed AISuggestionsResponse χωρίς να γνωρίζει ή να χειρίζεται Gemini API key.
 
 ### Contexts
 
@@ -373,7 +407,7 @@ Local frontend storage για token, cached settings και native notification 
 
 ### Reusable components
 
-Τα AppButton, AppInput, DateField, TimeField, FormModal, FloatingActionButton, EmptyState, SectionCard, StatCard, StreakBadge, IconColorPicker και NotificationBell μειώνουν τη διπλοποίηση.
+Τα AppButton, AppInput, DateField, TimeField, FormModal, FloatingActionButton, EmptyState, SectionCard, StatCard, StreakBadge, IconColorPicker, NotificationBell και AISuggestionsModal μειώνουν τη διπλοποίηση και κρατούν τις κύριες οθόνες πιο καθαρές.
 
 ### SVG icon system
 
@@ -427,7 +461,23 @@ Local frontend storage για token, cached settings και native notification 
 
 Το StreakBadge και τα top summary chips δίνουν γρήγορη πληροφορία σε όλες τις authenticated οθόνες. Το dashboard δεν αντικαθιστά τις αναλυτικές οθόνες αλλά οδηγεί σε αυτές.
 
-## 18. Notification and reminder system
+## 18. AI Suggestions module
+
+Το AI Suggestions module προσθέτει προαιρετική έξυπνη υποβοήθηση στη ροή οργάνωσης του χρήστη. Ο σκοπός του δεν είναι να αντικαταστήσει τη χειροκίνητη διαχείριση εργασιών και συνηθειών, αλλά να βοηθήσει τον χρήστη να ξεκινήσει πιο γρήγορα από ένα σύντομο prompt.
+
+Η ροή ξεκινά από το AISuggestionsModal στο frontend. Ο χρήστης γράφει τι θέλει να οργανώσει, επιλέγει γλώσσα και focus, και ζητά προτάσεις. Το frontend στέλνει τα δεδομένα στο ai.api.ts, το οποίο καλεί το POST /api/ai/suggestions με το υπάρχον authenticated API client.
+
+Το backend ελέγχει ότι το prompt δεν είναι κενό, ότι δεν ξεπερνά το επιτρεπτό μήκος και ότι τα language/focus values είναι αποδεκτά. Στη συνέχεια καλεί το Gemini API με backend-only GEMINI_API_KEY. Το API key δεν εμφανίζεται στο frontend, δεν αποθηκεύεται σε repository documentation και δεν επιστρέφεται ποτέ σε response.
+
+Η απάντηση του Gemini αναμένεται ως structured JSON με tasks, habits και notes. Το backend εφαρμόζει sanitizer ώστε τα tasks να έχουν title, description, date_hint, estimated_duration_minutes, priority, icon και color, ενώ τα habits να έχουν title, description, recurrence_type, target_count, target_period, icon και color. Το αποτέλεσμα περιορίζεται σε έως πέντε εργασίες και έως πέντε συνήθειες.
+
+Στο frontend οι προτάσεις εμφανίζονται ως κάρτες. Οι task suggestion cards προβάλλουν σύντομο τίτλο, περιγραφή, προτεραιότητα, ημερομηνιακή ένδειξη και διάρκεια. Οι habit suggestion cards προβάλλουν τίτλο, περιγραφή, τύπο επανάληψης και στόχο. Ο χρήστης μπορεί να πατήσει Add σε κάθε πρόταση που θέλει να κρατήσει.
+
+Η χειροκίνητη προσθήκη είναι βασική σχεδιαστική απόφαση. Η λειτουργία AI δεν δημιουργεί αυτόματα εργασίες ή συνήθειες. Όταν ο χρήστης επιλέξει μία πρόταση, το frontend τη μετατρέπει σε payload για τα ήδη υπάρχοντα APIs /api/tasks ή /api/habits. Έτσι τα AI-generated items δεν αποτελούν ξεχωριστό είδος δεδομένων, αλλά κανονικές εργασίες ή συνήθειες μετά την επιβεβαίωση του χρήστη.
+
+Οι περιορισμοί του module είναι σκόπιμοι. Δεν υπάρχει αποθήκευση prompts στη βάση, δεν υπάρχει μακροχρόνια μνήμη AI, δεν υπάρχει αυτόνομο weekly planning και δεν παρέχονται ιατρικές, νομικές ή οικονομικές συμβουλές. Αν το GEMINI_API_KEY λείπει ή ο provider αποτύχει, ο χρήστης βλέπει φιλικό μήνυμα και το υπόλοιπο σύστημα παραμένει λειτουργικό.
+
+## 19. Notification and reminder system
 
 Το σύστημα ειδοποιήσεων έχει δύο επίπεδα. Το πρώτο είναι το backend notification center, όπου ο πίνακας notifications αποτελεί source of truth. Το δεύτερο είναι το native local scheduling στο frontend, το οποίο λειτουργεί μόνο όπου το επιτρέπει η πλατφόρμα.
 
@@ -451,7 +501,7 @@ Local frontend storage για token, cached settings και native notification 
 
 Περιορισμός: Το Android Expo Go αντιμετωπίζεται ως native notification unavailable. Για πλήρη native local notification δοκιμή απαιτείται development ή production build.
 
-## 19. Settings, themes και localization
+## 20. Settings, themes και localization
 
 Οι ρυθμίσεις αποθηκεύονται στο backend και cache-άρονται στο frontend. Το SettingsContext φορτώνει cached settings πριν ή παράλληλα με backend synchronization ώστε η εφαρμογή να ξεκινά με γνωστή εμφάνιση.
 
@@ -461,7 +511,7 @@ Local frontend storage για token, cached settings και native notification 
 
 Το notifications_enabled ελέγχει native scheduling, το time_format ελέγχει 12h/24h εμφάνιση, το week_starts_on επηρεάζει ημερολόγιο και weekly progress, ενώ το default_view καθορίζει την αρχική καρτέλα.
 
-## 20. UI/UX design
+## 21. UI/UX design
 
 Το UI ακολουθεί mobile-first προσέγγιση. Η κάτω πλοήγηση δίνει πρόσβαση στις βασικές οθόνες, ενώ το floating action button δίνει γρήγορη δημιουργία εργασίας ή συνήθειας.
 
@@ -473,7 +523,7 @@ Local frontend storage για token, cached settings και native notification 
 
 Η προσβασιμότητα στο V1 καλύπτεται βασικά με μεγάλα touch targets και καθαρή αντίθεση. Πιο συστηματικός έλεγχος screen readers και keyboard navigation μπορεί να γίνει μελλοντικά.
 
-## 21. Security considerations
+## 22. Security considerations
 
 Η ασφάλεια του V1 βασίζεται σε βασικές πρακτικές: bcrypt hashing, JWT protected routes και user-specific queries. Οι κωδικοί δεν αποθηκεύονται σε plain text.
 
@@ -481,9 +531,13 @@ Local frontend storage για token, cached settings και native notification 
 
 Το repository και η τεκμηρίωση δεν πρέπει να περιέχουν πραγματικές τιμές .env, passwords, tokens ή private credentials. Το παρόν master draft αναφέρει μόνο ονόματα μεταβλητών και τεχνικούς ρόλους.
 
+Για τη λειτουργία AI Suggestions, το GEMINI_API_KEY υπάρχει μόνο στο backend περιβάλλον. Το frontend δεν έχει πρόσβαση στο κλειδί και δεν κάνει απευθείας κλήσεις στο Gemini API. Τα prompts δεν αποθηκεύονται στη βάση στο V1 και οι προτάσεις δεν γίνονται εργασίες ή συνήθειες χωρίς ρητή ενέργεια του χρήστη.
+
+Τα σφάλματα του εξωτερικού AI provider μετατρέπονται σε σύντομα, φιλικά backend μηνύματα. Έτσι αποφεύγεται η εμφάνιση raw provider validation errors στο UI και μειώνεται ο κίνδυνος διαρροής τεχνικών λεπτομερειών.
+
 Περιορισμοί ασφάλειας: δεν υπάρχει rate limiting, refresh token rotation, role-based access control, audit log ή formal penetration test. Αυτά ανήκουν σε production hardening και μελλοντική εργασία.
 
-## 22. Testing and evaluation
+## 23. Testing and evaluation
 
 Η δοκιμή του TimeZap τεκμηριώνεται κυρίως με manual testing checklist. Αυτό είναι περιορισμός του V1, αλλά καλύπτει τις κρίσιμες ροές για thesis αξιολόγηση.
 
@@ -500,6 +554,7 @@ Local frontend storage για token, cached settings και native notification 
 - Calendar tests: month view, day details, multi-day task visibility, habit logs.
 - Dashboard tests: counts, streak badge, weekly progress, refresh μετά από actions.
 - Notification tests: unread count, read state, history, timing, cancellation.
+- AI Suggestions tests: missing GEMINI_API_KEY fallback, English/Greek/Romanian prompts, structured tasks/habits, manual Add flow και confirmation ότι δεν γίνεται αυτόματη δημιουργία.
 - Settings tests: theme, language, notifications_enabled, default view, week start, time format.
 - Web tests: localhost API και graceful degradation για native notifications.
 - Android tests: 10.0.2.2 API και Expo Go limitations.
@@ -507,7 +562,7 @@ Local frontend storage για token, cached settings και native notification 
 
 Για τελική εργασία μπορούν να προστεθούν test run ημερομηνίες, πραγματικά screenshots και βασικά automated tests για validators, controllers και frontend utility logic.
 
-## 23. Screenshots section
+## 24. Screenshots section
 
 [Placeholder: Login screen]
 
@@ -553,27 +608,51 @@ Caption: “Εικόνα 10: Οθόνη ρυθμίσεων.”
 
 Caption: “Εικόνα 11: Κέντρο ειδοποιήσεων.”
 
+[Placeholder: AI Suggestions modal with prompt]
+
+Caption: “Εικόνα 12: Προαιρετική λειτουργία AI Suggestions για δημιουργία προτάσεων εργασιών και συνηθειών.”
+
+[Placeholder: AI suggested tasks]
+
+Caption: “Εικόνα 13: Προτεινόμενες εργασίες που επιστρέφονται από το Gemini API.”
+
+[Placeholder: AI suggested habits]
+
+Caption: “Εικόνα 14: Προτεινόμενες συνήθειες που επιστρέφονται από το Gemini API.”
+
+[Placeholder: AI-generated task added to Tasks]
+
+Caption: “Εικόνα 15: Χειροκίνητη προσθήκη AI πρότασης εργασίας από τον χρήστη.”
+
+[Placeholder: AI-generated habit added to Habits]
+
+Caption: “Εικόνα 16: Χειροκίνητη προσθήκη AI πρότασης συνήθειας από τον χρήστη.”
+
+[Placeholder: AI unavailable message when API key is missing]
+
+Caption: “Εικόνα 17: Φιλικό μήνυμα μη διαθεσιμότητας της λειτουργίας AI Suggestions όταν δεν έχει ρυθμιστεί Gemini API key.”
+
 [Placeholder: Android emulator running TimeZap]
 
-Caption: “Εικόνα 12: Εκτέλεση στο Android Emulator.”
+Caption: “Εικόνα 18: Εκτέλεση στο Android Emulator.”
 
 [Placeholder: Backend health endpoint]
 
-Caption: “Εικόνα 13: Έλεγχος backend health.”
+Caption: “Εικόνα 19: Έλεγχος backend health.”
 
 [Placeholder: db-health endpoint]
 
-Caption: “Εικόνα 14: Έλεγχος σύνδεσης βάσης.”
+Caption: “Εικόνα 20: Έλεγχος σύνδεσης βάσης.”
 
 [Placeholder: PostgreSQL ERD / database diagram]
 
-Caption: “Εικόνα 15: Διάγραμμα βάσης δεδομένων.”
+Caption: “Εικόνα 21: Διάγραμμα βάσης δεδομένων.”
 
 [Placeholder: GitHub repository]
 
-Caption: “Εικόνα 16: Δομή repository.”
+Caption: “Εικόνα 22: Δομή repository.”
 
-## 24. Περιορισμοί υλοποίησης
+## 25. Περιορισμοί υλοποίησης
 
 Το TimeZap V1 είναι λειτουργικό αλλά όχι πλήρως παραγωγικό προϊόν. Οι περιορισμοί καταγράφονται ώστε η εργασία να είναι ρεαλιστική και να μην υπερβάλλει για δυνατότητες που δεν υπάρχουν.
 
@@ -589,8 +668,12 @@ Caption: “Εικόνα 16: Δομή repository.”
 - Δεν υπάρχει πλήρες automated test suite.
 - Δεν υπάρχει dedicated migration tool για παραγωγή.
 - Δεν υπάρχουν συνεργατικές/shared tasks.
+- Η λειτουργία AI Suggestions απαιτεί Gemini API key και εξαρτάται από εξωτερικό AI provider.
+- Δεν υπάρχει αυτόνομο AI planning ή αυτόματη διαχείριση προγράμματος.
+- Δεν υπάρχει μακροχρόνια AI μνήμη ή personalization βάσει ιστορικού χρήστη.
+- Δεν αποθηκεύονται AI prompts ή απορριφθείσες προτάσεις στο V1.
 
-## 25. Μελλοντικές επεκτάσεις
+## 26. Μελλοντικές επεκτάσεις
 
 Οι παρακάτω επεκτάσεις δεν είναι υλοποιημένες στο V1. Αποτελούν λογικά επόμενα βήματα αν το έργο συνεχιστεί μετά την πτυχιακή.
 
@@ -607,16 +690,21 @@ Caption: “Εικόνα 16: Δομή repository.”
 - Automated tests και CI pipeline.
 - Dedicated migrations.
 - Accessibility review.
+- Personalized AI suggestions βάσει ιστορικού εργασιών, συνηθειών και ολοκληρώσεων.
+- AI weekly plan generation με απαραίτητη επιβεβαίωση χρήστη.
+- Smarter habit recommendations και recurrence suggestions.
+- AI explanations για productivity patterns.
+- Local/offline AI model alternative αν προκύψουν ανάγκες privacy, κόστους ή διαθεσιμότητας.
 
-## 26. Συμπεράσματα
+## 27. Συμπεράσματα
 
-Το TimeZap υλοποιήθηκε ως ολοκληρωμένο V1 πληροφοριακό σύστημα διαχείρισης εργασιών και συνηθειών. Περιλαμβάνει backend, frontend, database schema, REST API, authentication, tasks, habits, dashboard, calendar, settings, localization, themes, notification center και platform-aware local notification scheduling.
+Το TimeZap υλοποιήθηκε ως ολοκληρωμένο V1 πληροφοριακό σύστημα διαχείρισης εργασιών και συνηθειών. Περιλαμβάνει backend, frontend, database schema, REST API, authentication, tasks, habits, dashboard, calendar, settings, localization, themes, notification center, platform-aware local notification scheduling και προαιρετική λειτουργία Gemini AI Suggestions.
 
-Η ανάπτυξη ανέδειξε πρακτικά ζητήματα όπως ημερομηνίες, multi-day records, recurrence, read/unread state, native platform limitations και synchronization. Η επιλογή backend notification records ως source of truth βοήθησε ώστε web και Android να έχουν κοινή εικόνα ειδοποιήσεων.
+Η ανάπτυξη ανέδειξε πρακτικά ζητήματα όπως ημερομηνίες, multi-day records, recurrence, read/unread state, native platform limitations, synchronization και ελεγχόμενη ενσωμάτωση εξωτερικού AI provider. Η επιλογή backend notification records ως source of truth βοήθησε ώστε web και Android να έχουν κοινή εικόνα ειδοποιήσεων, ενώ η backend-mediated AI ροή προστάτευσε το Gemini API key και κράτησε τον χρήστη υπεύθυνο για την τελική εισαγωγή προτάσεων.
 
 Το σύστημα καλύπτει τους βασικούς στόχους της πτυχιακής εργασίας και παρέχει σταθερή βάση για περαιτέρω εξέλιξη. Για τελική υποβολή, το παρόν master draft μπορεί να εμπλουτιστεί με βιβλιογραφία, πραγματικά screenshots, διαγράμματα και αποτελέσματα δοκιμών.
 
-## 27. Προτεινόμενη βιβλιογραφία / Πηγές προς συμπλήρωση
+## 28. Προτεινόμενη βιβλιογραφία / Πηγές προς συμπλήρωση
 
 Δεν επινοούνται ψεύτικες βιβλιογραφικές εγγραφές. Η τελική εργασία πρέπει να συμπληρωθεί με πραγματικές πηγές και επίσημη μορφοποίηση παραπομπών.
 
@@ -634,8 +722,10 @@ Caption: “Εικόνα 16: Δομή repository.”
 - [Source needed: Human-computer interaction or usability reference]
 - [Source needed: Habit formation / productivity reference]
 - [Source needed: OWASP authentication/session management guidance]
+- [Source needed: Gemini API / Google AI Studio documentation]
+- [Source needed: Structured output / JSON generation documentation]
 
-## 28. Παράρτημα Α: Πηγές έργου που χρησιμοποιήθηκαν
+## 29. Παράρτημα Α: Πηγές έργου που χρησιμοποιήθηκαν
 
 Το παρόν master draft βασίστηκε στην υπάρχουσα τεκμηρίωση και στον πηγαίο κώδικα του repository. Οι παρακάτω πηγές επιθεωρήθηκαν πριν τη δημιουργία του εγγράφου:
 
@@ -658,6 +748,11 @@ Caption: “Εικόνα 16: Δομή repository.”
 - frontend/src/api/*.ts
 - frontend/src/types/*.ts
 - frontend/src/context/*.tsx
+- backend/src/controllers/ai.controller.js
+- backend/src/routes/ai.routes.js
+- frontend/src/components/AISuggestionsModal.tsx
+- frontend/src/api/ai.api.ts
+- frontend/src/types/ai.ts
 - frontend/src/services/*.ts
 - frontend/src/components/*.tsx
 - frontend/src/components/icons/*.tsx

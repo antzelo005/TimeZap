@@ -10,10 +10,17 @@ TimeZap uses PostgreSQL as its persistent data store. The reference schema is st
 - Plain-text passwords are never stored.
 - Multi-day tasks and habits use `end_date`.
 - Notifications are stored in the backend database for the in-app notification center and scheduling source records.
+- AI Suggestions do not introduce an AI-specific table in V1.
 
 ERD placeholder:
 
 [Screenshot: PostgreSQL ERD/database diagram]
+
+## AI Suggestions and Persistence
+
+The optional AI Suggestions feature does not store user prompts, Gemini responses, or rejected suggestions in the database in V1. The backend uses Gemini only to generate a temporary structured response for the authenticated request.
+
+If the user manually adds an AI-suggested task, the frontend calls the existing task creation endpoint and a normal row is inserted into `tasks`. If the user manually adds an AI-suggested habit, the frontend calls the existing habit creation endpoint and normal rows are inserted into `habits` and `habit_rules`. Therefore no new AI-specific database table is required for the current implementation.
 
 ## Main Tables
 

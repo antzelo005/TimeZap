@@ -1,6 +1,6 @@
 # TimeZap
 
-TimeZap is a task and habit management application built as a full-stack thesis project. It provides authenticated task tracking, habit tracking, dashboard summaries, calendar views, settings, localization, themes, and a notification/reminder center for web and Android.
+TimeZap is a task and habit management application built as a full-stack thesis project. It provides authenticated task tracking, habit tracking, dashboard summaries, calendar views, settings, localization, themes, a notification/reminder center for web and Android, and optional Gemini-powered AI Suggestions.
 
 Thesis context: **Task & Habit Management Information System**
 
@@ -17,7 +17,7 @@ Thesis context: **Task & Habit Management Information System**
 - Backend notification center with unread/read state.
 - Local reminder scheduling on supported native Android builds when notification permissions are enabled.
 - SVG-based icon system shared across screens.
-- Optional AI Suggestions helper that uses the Gemini API from the backend to suggest tasks and habits for user review.
+- Optional AI Suggestions helper: users enter a prompt, receive structured task/habit suggestions from Gemini through the backend, review the suggestions, and manually choose what to add.
 
 ## Tech Stack
 
@@ -42,7 +42,7 @@ Thesis context: **Task & Habit Management Information System**
 - bcrypt
 - dotenv
 - CORS
-- Gemini API through a backend-only API call for optional AI Suggestions
+- Google Gemini API through a backend-only API call for optional AI Suggestions
 
 ### Database
 
@@ -131,7 +131,17 @@ GEMINI_MODEL=gemini-2.5-flash
 ```
 
 The current backend configuration uses individual `DB_*` variables, not a single `DATABASE_URL`.
-`GEMINI_API_KEY` is optional and enables AI Suggestions. Keep it only in the backend environment; the frontend never receives the key.
+
+`GEMINI_API_KEY` is optional and enables AI Suggestions. Keep it only in the backend `.env`; the frontend never receives the key and never calls Gemini directly. If `GEMINI_API_KEY` is missing, the AI Suggestions endpoint returns a clean unavailable response and the rest of the app continues to work.
+
+To enable AI Suggestions:
+
+1. Create or update `backend\.env`.
+2. Add `GEMINI_API_KEY=your_gemini_api_key_here`.
+3. Optionally set `GEMINI_MODEL=gemini-2.5-flash`.
+4. Restart the backend.
+
+AI Suggestions are review-only in V1. Generated tasks and habits are not inserted automatically; the user must press Add on each suggestion, which then uses the normal Tasks/Habits APIs.
 
 ## PostgreSQL Setup
 
@@ -248,8 +258,8 @@ Backend variables:
 - `JWT_SECRET`: secret used to sign JWT tokens.
 - `JWT_EXPIRES_IN`: optional JWT lifetime, default `7d`.
 - `NODE_ENV`: optional runtime mode.
-- `GEMINI_API_KEY`: optional backend-only key for AI Suggestions.
-- `GEMINI_MODEL`: optional model override for AI Suggestions, default `gemini-2.5-flash`.
+- `GEMINI_API_KEY`: optional backend-only Gemini key for AI Suggestions. Use `GEMINI_API_KEY=your_gemini_api_key_here` in local setup examples only; do not commit a real key.
+- `GEMINI_MODEL`: optional Gemini model override for AI Suggestions, default `gemini-2.5-flash`.
 
 Frontend variables:
 
@@ -274,6 +284,11 @@ Suggested screenshots:
 - [Screenshot: Calendar day details]
 - [Screenshot: Account/settings screen]
 - [Screenshot: Notification center]
+- [Screenshot: AI Suggestions modal with prompt]
+- [Screenshot: AI suggested tasks]
+- [Screenshot: AI suggested habits]
+- [Screenshot: AI-generated task added to Tasks]
+- [Screenshot: AI-generated habit added to Habits]
 - [Screenshot: Android emulator running TimeZap]
 - [Screenshot: Backend health endpoint]
 - [Screenshot: PostgreSQL ERD/database diagram]

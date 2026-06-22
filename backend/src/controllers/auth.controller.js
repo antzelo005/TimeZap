@@ -174,13 +174,37 @@ async function me(req, res, next) {
 
 async function updateProfile(req, res, next) {
   try {
-    const { email, display_name } = req.body;
+    const { email, display_name, current_password } = req.body;
 
     if (!isValidEmail(email)) {
       throw createAppError(400, "A valid email is required");
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    if (current_password !== undefined) {
+      if (!validatePassword(current_password)) {
+        throw createAppError(400, "Current password is required");
+      }
+
+      const passwordResult = await query(
+        `SELECT password_hash
+         FROM users
+         WHERE user_id = $1
+         LIMIT 1`,
+        [req.user.user_id]
+      );
+
+      if (passwordResult.rows.length === 0) {
+        throw createAppError(404, "User not found");
+      }
+
+      const passwordMatches = await bcrypt.compare(current_password, passwordResult.rows[0].password_hash);
+
+      if (!passwordMatches) {
+        throw createAppError(401, "Current password is incorrect");
+      }
+    }
+
     const hasDisplayName = Object.prototype.hasOwnProperty.call(req.body, "display_name");
     const normalizedDisplayName =
       hasDisplayName && typeof display_name === "string" && display_name.trim()

@@ -27,6 +27,7 @@ export interface MeResponse {
 export interface ProfileUpdatePayload {
   email: string;
   display_name?: string | null;
+  current_password?: string;
 }
 
 export interface ProfileUpdateResponse {

@@ -139,16 +139,7 @@ The AI Suggestions endpoint is an optional V1 intelligent assistance feature. It
 | --- | --- | --- | --- |
 | POST | `/api/ai/suggestions` | Generate suggested tasks and habits from a short user prompt. | Yes |
 
-If `GEMINI_API_KEY` is missing, the endpoint returns:
-
-```json
-{
-  "error": true,
-  "message": "AI suggestions are not configured"
-}
-```
-
-Example request:
+Request body:
 
 ```json
 {
@@ -158,7 +149,13 @@ Example request:
 }
 ```
 
-Example response shape:
+Fields:
+
+- `prompt`: required non-empty string, maximum 1000 characters.
+- `language`: optional. Supported values are `en`, `el`, and `ro`. If omitted, the backend uses the user's stored language when available.
+- `focus`: optional. Supported values are `general`, `study`, `work`, `health`, and `personal`.
+
+Successful response:
 
 ```json
 {
@@ -189,6 +186,45 @@ Example response shape:
   }
 }
 ```
+
+Response constraints:
+
+- `suggestions.tasks` contains at most 5 task suggestions.
+- `suggestions.habits` contains at most 5 habit suggestions.
+- `suggestions.notes` is a short string.
+- Task suggestion fields: `title`, `description`, `date_hint`, `estimated_duration_minutes`, `priority`, `icon`, `color`.
+- Habit suggestion fields: `title`, `description`, `recurrence_type`, `target_count`, `target_period`, `icon`, `color`.
+- Allowed task `date_hint` values: `today`, `tomorrow`, `this_week`, `none`.
+- Allowed task `priority` values: `low`, `medium`, `high`.
+- Allowed habit `recurrence_type` values: `daily`, `specific_weekdays`, `x_times_per_week`.
+- Allowed habit `target_period` values: `day`, `week`.
+
+Error behavior:
+
+- Missing or empty `prompt`: `400` with `message: "prompt is required"`.
+- Prompt longer than 1000 characters: `400` with a validation message.
+- Invalid `language`: `400` with `message: "Invalid language"`.
+- Invalid `focus`: `400` with `message: "Invalid focus"`.
+- Missing `GEMINI_API_KEY`: `503`.
+- Gemini/provider failure or invalid generated JSON: `502`.
+
+If `GEMINI_API_KEY` is missing, the endpoint returns:
+
+```json
+{
+  "message": "AI suggestions are not configured"
+}
+```
+
+If Gemini returns invalid JSON or cannot generate a usable response, the endpoint returns:
+
+```json
+{
+  "message": "Could not generate suggestions"
+}
+```
+
+The endpoint only returns suggestions. It does not insert rows into `tasks`, `habits`, `habit_rules`, or `habit_logs`. When the user chooses to add a suggestion, the frontend calls the existing task or habit creation endpoints.
 
 ## Tasks
 
